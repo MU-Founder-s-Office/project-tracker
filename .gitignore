@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Build artefacts
+*.zip
+dist/
+build/
+
+# Local env / secrets
+.env
+.env.local
+*.pem
+
+# Node (dashboard is pure static; nothing here is a runtime dep)
+node_modules/
+package.json
+package-lock.json
+
+# Claude Code workspace
+.claude/
+
+# Firebase (we deploy via Netlify)
+.firebaserc
+firebase.json
+.firebase/
