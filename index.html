@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>MU Project Tracker</title>
+    <link rel="stylesheet" href="./styles.css?v=39" />
+  </head>
+  <body>
+    <div id="rotateSplash" class="rotate-splash" role="dialog" aria-label="Rotate device">
+      <div class="rotate-splash-card">
+        <div class="rotate-icon" aria-hidden="true">
+          <svg viewBox="0 0 64 64">
+            <rect class="phone" x="20" y="6" width="24" height="44" rx="4" />
+            <rect class="screen" x="22.5" y="11" width="19" height="34" rx="1.5" />
+            <circle class="speaker" cx="32" cy="48" r="1.4" />
+            <path class="arrow" d="M50 28 a18 18 0 0 0 -18 -18" />
+            <path class="arrow-head" d="M30 8 l4 4 l-4 4" />
+          </svg>
+        </div>
+        <p class="eyebrow">Project Tracker</p>
+        <h2>Rotate for the best view</h2>
+        <p class="splash-body">The dashboard is built for landscape. Turn your phone sideways to unlock the full experience.</p>
+        <button id="dismissSplash" type="button" class="splash-link">Continue in portrait</button>
+      </div>
+    </div>
+
+    <div id="detailScrim" class="detail-scrim" aria-hidden="true"></div>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Masters' Union</p>
+          <h1>Project Tracker</h1>
+        </div>
+        <div class="header-controls">
+          <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
+            <span class="icon icon-sun" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+            </span>
+            <span class="icon icon-moon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+            </span>
+          </button>
+          <section class="view-tabs" aria-label="Views">
+          <button class="tab-button active" data-view="overview" type="button">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="3.5" y="3.5" width="7.5" height="9" rx="1.5"/>
+                <rect x="13" y="3.5" width="7.5" height="5" rx="1.5"/>
+                <rect x="13" y="11" width="7.5" height="9.5" rx="1.5"/>
+                <rect x="3.5" y="15" width="7.5" height="5.5" rx="1.5"/>
+              </svg>
+            </span>
+            Overview
+          </button>
+          <button class="tab-button" data-view="timeline" type="button">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="3" y="5.5" width="10" height="3.2" rx="1.2"/>
+                <rect x="8" y="10.4" width="11" height="3.2" rx="1.2"/>
+                <rect x="5" y="15.3" width="9" height="3.2" rx="1.2"/>
+              </svg>
+            </span>
+            Timeline
+          </button>
+          </section>
+        </div>
+      </header>
+
+      <main>
+        <section class="control-band" aria-label="Dashboard controls">
+          <label class="search-box">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="m21 21-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"/></svg>
+            </span>
+            <input id="searchInput" type="search" placeholder="Search projects, notes" />
+          </label>
+
+          <label>
+            <span>Workstream</span>
+            <select id="workstreamFilter"></select>
+          </label>
+
+          <label>
+            <span>Status</span>
+            <select id="statusFilter"></select>
+          </label>
+
+          <label>
+            <span>Priority</span>
+            <select id="priorityFilter"></select>
+          </label>
+
+          <label>
+            <span>Sort</span>
+            <select id="sortFilter"></select>
+          </label>
+        </section>
+
+        <section class="kpi-grid" id="kpiGrid" aria-label="Project summary"></section>
+
+        <section class="dashboard-layout">
+          <div class="main-panel">
+            <div class="view-panel active" id="overviewView">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Portfolio</p>
+                  <h2>Projects</h2>
+                </div>
+                <p id="resultCount"></p>
+              </div>
+              <div class="project-list" id="projectList"></div>
+            </div>
+
+            <div class="view-panel" id="timelineView">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Delivery</p>
+                  <h2>Timeline</h2>
+                </div>
+                <div class="timeline-controls">
+                  <div class="zoom-control" id="zoomControl" role="tablist" aria-label="Zoom level">
+                    <button class="zoom-btn active" type="button" data-zoom="year">Year</button>
+                    <button class="zoom-btn" type="button" data-zoom="quarter">Quarter</button>
+                    <button class="zoom-btn" type="button" data-zoom="month">Month</button>
+                  </div>
+                  <p id="timelineRange"></p>
+                </div>
+              </div>
+              <div class="timeline" id="timeline"></div>
+            </div>
+
+          </div>
+
+          <aside class="detail-panel" id="detailPanel" aria-label="Project detail"></aside>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js?v=39" type="module"></script>
+  </body>
+</html>
