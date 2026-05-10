@@ -587,6 +587,22 @@ function renderView() {
   if (state.view === "planner") Planner.render();
 }
 
+const VALID_VIEWS = ["overview", "timeline", "planner"];
+function hashView() {
+  const v = (window.location.hash || "").replace("#", "");
+  return VALID_VIEWS.includes(v) ? v : null;
+}
+const startView = hashView();
+if (startView) state.view = startView;
+window.addEventListener("hashchange", () => {
+  const v = hashView();
+  if (v && v !== state.view) {
+    state.view = v;
+    if (v === "timeline") state.detailOpen = false;
+    render();
+  }
+});
+
 function filteredProjects() {
   const { search, workstream, status, priority, sort } = state.filters;
   const items = state.projects.filter((project) => {
