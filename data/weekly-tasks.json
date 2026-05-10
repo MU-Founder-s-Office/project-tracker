@@ -1,0 +1,266 @@
+{
+  "metadata": {
+    "generatedAt": "2026-05-10T08:00:00+05:30",
+    "currentWeekStart": "2026-05-04",
+    "workWeekDays": 5,
+    "dailyHours": 8,
+    "statuses": ["To Do", "In Progress", "In Review", "Done", "Blocked"],
+    "priorities": ["P0", "P1", "P2", "P3"],
+    "team": [
+      { "id": "ananya",  "name": "Ananya Sharma",  "email": "ananya.sharma@mastersunion.org",  "role": "Programme Lead — NPS",          "avatar": "AS" },
+      { "id": "rohan",   "name": "Rohan Mehta",    "email": "rohan.mehta@mastersunion.org",    "role": "Platforms Lead",                "avatar": "RM" },
+      { "id": "saloni",  "name": "Saloni Kapoor",  "email": "saloni.kapoor@mastersunion.org",  "role": "AI Initiatives — Delivery",     "avatar": "SK" },
+      { "id": "vikram",  "name": "Vikram Iyer",    "email": "vikram.iyer@mastersunion.org",    "role": "Strategy & Positioning",        "avatar": "VI" },
+      { "id": "priya",   "name": "Priya Nair",     "email": "priya.nair@mastersunion.org",     "role": "Product Designer",              "avatar": "PN" },
+      { "id": "kabir",   "name": "Kabir Singh",    "email": "kabir.singh@mastersunion.org",    "role": "Engineering — Platforms",       "avatar": "KS" },
+      { "id": "isha",    "name": "Isha Bose",      "email": "isha.bose@mastersunion.org",      "role": "Analyst — NPS",                 "avatar": "IB" },
+      { "id": "neel",    "name": "Neel Krishnan",  "email": "neel.krishnan@mastersunion.org",  "role": "AI Engineer",                   "avatar": "NK" }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "T-101", "weekStart": "2026-05-04",
+      "title": "Ship Term-4 NPS dashboard refresh",
+      "projectId": "P-03", "milestone": true,
+      "ownerId": "ananya", "reviewerId": "vikram",
+      "status": "In Review", "priority": "P0",
+      "dueDate": "2026-05-08", "completedAt": null,
+      "hoursEstimate": 10, "hoursActual": 9,
+      "qualityScore": 4.5,
+      "notes": "Awaiting sign-off from Strategy. All Term-4 segments validated."
+    },
+    {
+      "id": "T-102", "weekStart": "2026-05-04",
+      "title": "Wire concerns inbox to triage queue",
+      "projectId": "P-12", "milestone": false,
+      "ownerId": "kabir", "reviewerId": "rohan",
+      "status": "Done", "priority": "P1",
+      "dueDate": "2026-05-07", "completedAt": "2026-05-07",
+      "hoursEstimate": 6, "hoursActual": 5,
+      "qualityScore": 4.8,
+      "notes": "Routed via webhook; smoke tests green."
+    },
+    {
+      "id": "T-103", "weekStart": "2026-05-04",
+      "title": "Draft Stream-B finance redesign brief",
+      "projectId": "P-16", "milestone": false,
+      "ownerId": "rohan", "reviewerId": "vikram",
+      "status": "In Progress", "priority": "P1",
+      "dueDate": "2026-05-09", "completedAt": null,
+      "hoursEstimate": 8, "hoursActual": 6,
+      "qualityScore": null,
+      "notes": "Section on legal handover pending."
+    },
+    {
+      "id": "T-104", "weekStart": "2026-05-04",
+      "title": "Horizon Scan v3 — synthesise findings",
+      "projectId": "P-22", "milestone": true,
+      "ownerId": "saloni", "reviewerId": "vikram",
+      "status": "In Progress", "priority": "P0",
+      "dueDate": "2026-05-08", "completedAt": null,
+      "hoursEstimate": 12, "hoursActual": 8,
+      "qualityScore": null,
+      "notes": "Three of four AI vendors short-listed."
+    },
+    {
+      "id": "T-105", "weekStart": "2026-05-04",
+      "title": "Marketing-AI prompt library — sprint 2",
+      "projectId": "P-21", "milestone": false,
+      "ownerId": "neel", "reviewerId": "saloni",
+      "status": "To Do", "priority": "P2",
+      "dueDate": "2026-05-10", "completedAt": null,
+      "hoursEstimate": 5, "hoursActual": 0,
+      "qualityScore": null,
+      "notes": "Blocked by GPU quota request."
+    },
+    {
+      "id": "T-106", "weekStart": "2026-05-04",
+      "title": "Admissions chat — golden-path QA",
+      "projectId": "P-27", "milestone": false,
+      "ownerId": "isha", "reviewerId": "saloni",
+      "status": "Blocked", "priority": "P1",
+      "dueDate": "2026-05-06", "completedAt": null,
+      "hoursEstimate": 4, "hoursActual": 1,
+      "qualityScore": null,
+      "notes": "Waiting on staging credentials from IT."
+    },
+    {
+      "id": "T-107", "weekStart": "2026-05-04",
+      "title": "External Positioning — May LinkedIn calendar",
+      "projectId": "P-25", "milestone": false,
+      "ownerId": "vikram", "reviewerId": "ananya",
+      "status": "Done", "priority": "P2",
+      "dueDate": "2026-05-05", "completedAt": "2026-05-05",
+      "hoursEstimate": 4, "hoursActual": 4,
+      "qualityScore": 4.2,
+      "notes": "10 posts queued through end-May."
+    },
+    {
+      "id": "T-108", "weekStart": "2026-05-04",
+      "title": "Detail screens — Project card v2 (Figma)",
+      "projectId": "P-20", "milestone": false,
+      "ownerId": "priya", "reviewerId": "rohan",
+      "status": "In Review", "priority": "P1",
+      "dueDate": "2026-05-09", "completedAt": null,
+      "hoursEstimate": 6, "hoursActual": 7,
+      "qualityScore": 4.6,
+      "notes": "Two interaction states open for review."
+    },
+    {
+      "id": "T-109", "weekStart": "2026-05-04",
+      "title": "Survey signal — outlier detector tuning",
+      "projectId": "P-07", "milestone": false,
+      "ownerId": "isha", "reviewerId": "ananya",
+      "status": "In Progress", "priority": "P1",
+      "dueDate": "2026-05-08", "completedAt": null,
+      "hoursEstimate": 8, "hoursActual": 6,
+      "qualityScore": null,
+      "notes": "Term-4 cohort in test fold."
+    },
+    {
+      "id": "T-110", "weekStart": "2026-05-04",
+      "title": "Concerns SLA — Tier-1 close-out report",
+      "projectId": "P-13", "milestone": true,
+      "ownerId": "rohan", "reviewerId": "ananya",
+      "status": "To Do", "priority": "P0",
+      "dueDate": "2026-05-10", "completedAt": null,
+      "hoursEstimate": 6, "hoursActual": 0,
+      "qualityScore": null,
+      "notes": "Pull data from Zendesk after Friday cut-off."
+    },
+    {
+      "id": "T-111", "weekStart": "2026-05-04",
+      "title": "Thought-leadership — May essay outline",
+      "projectId": "P-28", "milestone": false,
+      "ownerId": "vikram", "reviewerId": null,
+      "status": "In Progress", "priority": "P2",
+      "dueDate": "2026-05-11", "completedAt": null,
+      "hoursEstimate": 5, "hoursActual": 2,
+      "qualityScore": null,
+      "notes": "Topic: India's services-led AI moment."
+    },
+    {
+      "id": "T-112", "weekStart": "2026-05-04",
+      "title": "Academic dashboard — student-facing alpha",
+      "projectId": "P-24", "milestone": false,
+      "ownerId": "kabir", "reviewerId": "priya",
+      "status": "In Progress", "priority": "P1",
+      "dueDate": "2026-05-12", "completedAt": null,
+      "hoursEstimate": 10, "hoursActual": 4,
+      "qualityScore": null,
+      "notes": "Routing & auth wired; UI in next sprint."
+    },
+
+    {
+      "id": "T-201", "weekStart": "2026-04-27",
+      "title": "T3 NPS — comms playbook handover",
+      "projectId": "P-02", "milestone": true,
+      "ownerId": "ananya", "reviewerId": "vikram",
+      "status": "Done", "priority": "P0",
+      "dueDate": "2026-05-01", "completedAt": "2026-05-01",
+      "hoursEstimate": 8, "hoursActual": 8,
+      "qualityScore": 4.7,
+      "notes": "Handover deck shared with all programme owners."
+    },
+    {
+      "id": "T-202", "weekStart": "2026-04-27",
+      "title": "Founder briefing — Horizon Scan v2",
+      "projectId": "P-22", "milestone": true,
+      "ownerId": "saloni", "reviewerId": "vikram",
+      "status": "Done", "priority": "P0",
+      "dueDate": "2026-04-30", "completedAt": "2026-05-02",
+      "hoursEstimate": 6, "hoursActual": 9,
+      "qualityScore": 3.9,
+      "notes": "Slipped 2 days; vendor data took longer than planned."
+    },
+    {
+      "id": "T-203", "weekStart": "2026-04-27",
+      "title": "Concerns app — Tier-2 schema migration",
+      "projectId": "P-14", "milestone": false,
+      "ownerId": "kabir", "reviewerId": "rohan",
+      "status": "Done", "priority": "P1",
+      "dueDate": "2026-05-02", "completedAt": "2026-05-02",
+      "hoursEstimate": 8, "hoursActual": 7,
+      "qualityScore": 4.5,
+      "notes": "Zero downtime."
+    },
+    {
+      "id": "T-204", "weekStart": "2026-04-27",
+      "title": "Mid-term NPS — analyst readout",
+      "projectId": "P-03", "milestone": false,
+      "ownerId": "isha", "reviewerId": "ananya",
+      "status": "Done", "priority": "P1",
+      "dueDate": "2026-04-30", "completedAt": "2026-04-30",
+      "hoursEstimate": 5, "hoursActual": 4,
+      "qualityScore": 4.3,
+      "notes": ""
+    },
+    {
+      "id": "T-205", "weekStart": "2026-04-27",
+      "title": "Design system — colour token audit",
+      "projectId": "P-20", "milestone": false,
+      "ownerId": "priya", "reviewerId": "kabir",
+      "status": "Done", "priority": "P2",
+      "dueDate": "2026-05-01", "completedAt": "2026-05-04",
+      "hoursEstimate": 4, "hoursActual": 6,
+      "qualityScore": 4.0,
+      "notes": "Slipped one day; brand-yellow contrast fix tracked."
+    },
+
+    {
+      "id": "T-301", "weekStart": "2026-05-11",
+      "title": "T4 NPS — survey window planning",
+      "projectId": "P-04", "milestone": true,
+      "ownerId": "ananya", "reviewerId": "vikram",
+      "status": "To Do", "priority": "P0",
+      "dueDate": "2026-05-15", "completedAt": null,
+      "hoursEstimate": 8, "hoursActual": 0,
+      "qualityScore": null,
+      "notes": "Cohort split needs ratification."
+    },
+    {
+      "id": "T-302", "weekStart": "2026-05-11",
+      "title": "Stream-D — partner platform RFP draft",
+      "projectId": "P-18", "milestone": false,
+      "ownerId": "rohan", "reviewerId": "vikram",
+      "status": "To Do", "priority": "P1",
+      "dueDate": "2026-05-15", "completedAt": null,
+      "hoursEstimate": 10, "hoursActual": 0,
+      "qualityScore": null,
+      "notes": "Three vendors long-listed."
+    },
+    {
+      "id": "T-303", "weekStart": "2026-05-11",
+      "title": "Admissions AI — eval harness v1",
+      "projectId": "P-27", "milestone": true,
+      "ownerId": "neel", "reviewerId": "saloni",
+      "status": "To Do", "priority": "P0",
+      "dueDate": "2026-05-16", "completedAt": null,
+      "hoursEstimate": 12, "hoursActual": 0,
+      "qualityScore": null,
+      "notes": "Golden set being curated by Isha."
+    },
+    {
+      "id": "T-304", "weekStart": "2026-05-11",
+      "title": "Internal Ops — finance close automation",
+      "projectId": "P-26", "milestone": false,
+      "ownerId": "vikram", "reviewerId": null,
+      "status": "To Do", "priority": "P2",
+      "dueDate": "2026-05-15", "completedAt": null,
+      "hoursEstimate": 4, "hoursActual": 0,
+      "qualityScore": null,
+      "notes": ""
+    },
+    {
+      "id": "T-305", "weekStart": "2026-05-11",
+      "title": "Project Tracker — weekly planner UAT",
+      "projectId": "P-20", "milestone": false,
+      "ownerId": "priya", "reviewerId": "ananya",
+      "status": "To Do", "priority": "P1",
+      "dueDate": "2026-05-14", "completedAt": null,
+      "hoursEstimate": 4, "hoursActual": 0,
+      "qualityScore": null,
+      "notes": "Walk-through with each team lead."
+    }
+  ]
+}
