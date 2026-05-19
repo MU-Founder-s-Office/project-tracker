@@ -3,7 +3,7 @@
 // - Only visible/usable when the signed-in user passes isEditor()
 // - Saves go through data-layer.saveProject() (Firestore)
 // - Other devices see updates via realtime subscriptions in app.js
-import { saveProject, deleteProject } from "./data-layer.js";
+import { saveProject, deleteProject, saveTeamMember, deleteTeamMember, uploadFile } from "./data-layer.js";
 import { onUserChange, currentEditor } from "./auth-ui.js";
 
 const STATUS_OPTIONS = ["Completed", "On Track", "At Risk", "Paused", "Not Started"];
@@ -321,6 +321,9 @@ export function decorateDetailPanel(panel, project) {
         });
         list.appendChild(row);
       });
+      const actions = document.createElement("div");
+      actions.className = "link-actions";
+
       const addBtn = document.createElement("button");
       addBtn.type = "button";
       addBtn.className = "link-add";
@@ -329,7 +332,17 @@ export function decorateDetailPanel(panel, project) {
         links.push({ label: "", url: "" });
         renderRows();
       });
-      list.appendChild(addBtn);
+      actions.appendChild(addBtn);
+
+      const uploadCtl = buildUploadButton(project, (nextLinks) => {
+        // Rebuild the local list from the saved set so the row UI reflects the upload
+        links.length = 0;
+        nextLinks.forEach((l) => links.push(l));
+        renderRows();
+      });
+      actions.appendChild(uploadCtl);
+
+      list.appendChild(actions);
     };
 
     renderRows();
@@ -592,6 +605,214 @@ function openAddProjectModal(getProjects) {
       submitBtn.textContent = originalLabel;
     }
   });
+}
+
+// ----- Team CRUD -------------------------------------------------------------
+
+export function mountAddMemberButton(container) {
+  if (!container || container.querySelector("#addMemberBtn")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "addMemberBtn";
+  btn.className = "edit-add-btn";
+  btn.innerHTML = `<span>＋</span> Add member`;
+  btn.hidden = !isEditModeOn();
+  btn.addEventListener("click", openAddMemberModal);
+  container.appendChild(btn);
+  onEditModeChange((on) => { btn.hidden = !on; });
+}
+
+export function decorateMemberCard(card, member) {
+  if (!isEditModeOn()) return;
+  card.classList.add("is-editable");
+
+  const nameEl = card.querySelector(".team-name");
+  const roleEl = card.querySelector(".team-role");
+  const emailEl = card.querySelector(".team-email");
+
+  const replace = (oldEl, type, value, key) => {
+    const input = document.createElement("input");
+    input.type = type;
+    input.value = value ?? "";
+    input.className = "inline-edit-text team-edit-input";
+    input.placeholder = key === "name" ? "Name" : key === "role" ? "Role" : "email@mastersunion.org";
+    input.addEventListener("blur", async () => {
+      const next = input.value.trim();
+      if (next === (member[key] || "")) return;
+      try {
+        await saveTeamMember({ ...member, [key]: next });
+      } catch (err) {
+        alert(`Save failed: ${err?.message || err}`);
+      }
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    });
+    oldEl.replaceWith(input);
+  };
+
+  if (nameEl) replace(nameEl, "text", member.name, "name");
+  if (roleEl) replace(roleEl, "text", member.role, "role");
+  if (emailEl) replace(emailEl, "email", member.email, "email");
+
+  // Delete button
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "team-card-delete";
+  del.title = "Delete member";
+  del.innerHTML = "×";
+  del.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Delete ${member.name || member.id} from the team?`)) return;
+    try {
+      await deleteTeamMember(member.id);
+    } catch (err) {
+      alert(`Delete failed: ${err?.message || err}`);
+    }
+  });
+  card.appendChild(del);
+}
+
+function memberIdFrom(name, email) {
+  if (email) return email.split("@")[0].toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return String(name || "member").toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now().toString(36).slice(-4);
+}
+
+function avatarFrom(name) {
+  if (!name) return "??";
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return ((parts[0][0] || "") + (parts[parts.length - 1][0] || "")).toUpperCase();
+}
+
+function openAddMemberModal() {
+  if (!isEditModeOn()) return;
+
+  const overlay = document.createElement("div");
+  overlay.className = "edit-modal-overlay";
+  overlay.innerHTML = `
+    <div class="edit-modal" role="dialog" aria-labelledby="addMemberTitle">
+      <header>
+        <h3 id="addMemberTitle">Add team member</h3>
+        <button type="button" class="edit-modal-close" aria-label="Close">×</button>
+      </header>
+      <form class="edit-form" id="addMemberForm" novalidate>
+        <label>
+          <span>Full name</span>
+          <input type="text" name="name" required autofocus />
+        </label>
+        <label>
+          <span>Role</span>
+          <input type="text" name="role" placeholder="e.g. Product Associate" />
+        </label>
+        <label>
+          <span>Email</span>
+          <input type="email" name="email" placeholder="firstname.lastname@mastersunion.org" />
+        </label>
+        <p class="edit-form-hint">Email is used to match the Google sign-in so this person can edit.</p>
+        <p class="edit-form-error" id="addMemberErr" hidden></p>
+        <footer>
+          <button type="button" class="btn-secondary" data-act="cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Add member</button>
+        </footer>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".edit-modal-close").addEventListener("click", close);
+  overlay.querySelector('[data-act="cancel"]').addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  const errEl = overlay.querySelector("#addMemberErr");
+  const submitBtn = overlay.querySelector('button[type="submit"]');
+
+  overlay.querySelector("#addMemberForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.hidden = true;
+    const fd = new FormData(e.target);
+    const name = String(fd.get("name") || "").trim();
+    const email = String(fd.get("email") || "").trim().toLowerCase();
+    const role = String(fd.get("role") || "").trim();
+    if (!name) {
+      errEl.textContent = "Name is required.";
+      errEl.hidden = false;
+      return;
+    }
+    const member = {
+      id: memberIdFrom(name, email),
+      name,
+      email,
+      role,
+      avatar: avatarFrom(name),
+    };
+    submitBtn.disabled = true;
+    const orig = submitBtn.textContent;
+    submitBtn.textContent = "Adding…";
+    try {
+      await saveTeamMember(member);
+      close();
+    } catch (err) {
+      errEl.textContent = `Add failed: ${err?.code ? `(${err.code}) ` : ""}${err?.message || err}`;
+      errEl.hidden = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = orig;
+    }
+  });
+}
+
+// ----- File upload (Storage) -------------------------------------------------
+
+// Returns a button element wired to open the file picker, upload to Storage,
+// and append the result to the project's links array.
+export function buildUploadButton(project, onSaved) {
+  const wrap = document.createElement("div");
+  wrap.className = "link-upload";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "link-upload-btn";
+  btn.innerHTML = `<span>↑</span> Upload file`;
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt";
+  input.style.display = "none";
+
+  const status = document.createElement("span");
+  status.className = "link-upload-status";
+
+  btn.addEventListener("click", () => input.click());
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    btn.disabled = true;
+    status.textContent = `Uploading ${file.name}…`;
+    try {
+      const scope = `projects/${project.id || "misc"}`;
+      const { url, name } = await uploadFile(file, scope);
+      const links = Array.isArray(project.links) ? [...project.links] : [];
+      links.push({ label: name.replace(/\.[a-z0-9]+$/i, ""), url });
+      await saveProject({ ...project, links });
+      status.textContent = "Uploaded ✓";
+      setTimeout(() => (status.textContent = ""), 1500);
+      onSaved?.(links);
+    } catch (err) {
+      console.error("[upload] failed", err);
+      status.textContent = `Failed: ${err?.code || ""} ${err?.message || err}`;
+      status.classList.add("err");
+      setTimeout(() => { status.textContent = ""; status.classList.remove("err"); }, 5000);
+    } finally {
+      btn.disabled = false;
+      input.value = "";
+    }
+  });
+
+  wrap.appendChild(btn);
+  wrap.appendChild(input);
+  wrap.appendChild(status);
+  return wrap;
 }
 
 function escapeHTML(s) {

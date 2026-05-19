@@ -207,7 +207,10 @@ async function init() {
   authUi?.mountAuthUI(document.querySelector("#authMount"));
   EditUI?.mountEditToggle(document.querySelector("#authMount"));
   EditUI?.mountAddProjectButton(document.querySelector("#addProjectMount"), () => state.projects);
-  EditUI?.onEditModeChange(() => render());
+  EditUI?.onEditModeChange(() => {
+    render();
+    Team.render();
+  });
 
   try {
     const [dataset, planner] = await Promise.all([
@@ -226,7 +229,14 @@ async function init() {
     populateFilters();
     wireEvents();
     Planner.init();
+    Team.init();
     render();
+
+    // Initial team load (works regardless of Firestore mode; falls back to JSON)
+    if (DataLayer) {
+      const initialTeam = await DataLayer.loadTeam();
+      Team.apply(initialTeam);
+    }
 
     // Realtime: push Firestore updates straight into the UI
     if (DataLayer && DataLayer.dataMode() === "firestore") {
@@ -234,6 +244,9 @@ async function init() {
         applyProjects(projects);
         populateFilters();
         render();
+      });
+      DataLayer.subscribeTeam((team) => {
+        Team.apply(team);
       });
     }
 
@@ -866,6 +879,72 @@ function escapeAttribute(value) {
  * ========================================================================= */
 
 const PLANNER_STATUSES = ["To Do", "In Progress", "In Review", "Done", "Blocked"];
+
+// ===== TEAM ==================================================================
+
+const Team = {
+  members: [],
+  els: {
+    list: null,
+    count: null,
+    mount: null,
+  },
+
+  init() {
+    this.els.list = document.querySelector("#teamList");
+    this.els.count = document.querySelector("#teamCount");
+    this.els.mount = document.querySelector("#addMemberMount");
+    if (EditUI) EditUI.mountAddMemberButton?.(this.els.mount);
+  },
+
+  apply(members) {
+    this.members = (members || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    // Keep the planner's team metadata in sync so its owner dropdowns refresh
+    if (Planner.dataset?.metadata) {
+      Planner.dataset.metadata.team = this.members;
+      Planner.initialised = false;
+      Planner.init();
+    }
+    this.render();
+  },
+
+  render() {
+    if (!this.els.list) return;
+    this.els.count.textContent = `${this.members.length} member${this.members.length === 1 ? "" : "s"}`;
+    if (!this.members.length) {
+      this.els.list.innerHTML = `<div class="empty-state">No team members yet. Toggle Edit and click "+ Add member".</div>`;
+      return;
+    }
+    this.els.list.innerHTML = this.members.map((m) => this.memberCard(m)).join("");
+    this.els.list.querySelectorAll(".team-card").forEach((card) => {
+      const member = this.members.find((m) => m.id === card.dataset.id);
+      if (member && EditUI?.isEditModeOn()) {
+        EditUI.decorateMemberCard?.(card, member);
+      }
+    });
+  },
+
+  memberCard(m) {
+    const initials = (m.avatar || nameInitials(m.name)).slice(0, 2).toUpperCase();
+    return `
+      <article class="team-card" data-id="${escapeHtml(m.id)}">
+        <div class="team-avatar" aria-hidden="true">${escapeHtml(initials)}</div>
+        <div class="team-meta">
+          <h3 class="team-name">${escapeHtml(m.name || "Unnamed")}</h3>
+          <p class="team-role">${escapeHtml(m.role || "—")}</p>
+          <p class="team-email">${m.email ? `<a href="mailto:${escapeAttribute(m.email)}">${escapeHtml(m.email)}</a>` : "—"}</p>
+        </div>
+      </article>
+    `;
+  },
+};
+
+function nameInitials(name) {
+  if (!name) return "??";
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2);
+  return (parts[0][0] || "") + (parts[parts.length - 1][0] || "");
+}
 
 const Planner = {
   dataset: null,

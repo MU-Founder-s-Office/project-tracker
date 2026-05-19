@@ -8,6 +8,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
+import { getStorage } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAMCqMCJz5NqGWsXrJ9ac89_oidPuxFnbY",
@@ -35,6 +36,8 @@ try {
   db = getFirestore(app);
 }
 export { db };
+
+export const storage = getStorage(app);
 
 export function isEditor(user) {
   if (!user || !user.email) return false;

@@ -84,6 +84,27 @@ The dashboard is already wired to Firebase project `project-tracker-8ac65`. You 
    }
    ```
 
+3a. **Storage setup** (needed for file uploads on project Links)
+   - Build → Storage → Get started → default bucket
+   - Rules tab, paste:
+
+   ```
+   rules_version = '2';
+   service firebase.storage {
+     match /b/{bucket}/o {
+       function isEditor() {
+         return request.auth != null
+             && request.auth.token.email is string
+             && request.auth.token.email.matches('.*@mastersunion[.]org$');
+       }
+       match /{allPaths=**} {
+         allow read: if true;
+         allow write: if isEditor();
+       }
+     }
+   }
+   ```
+
 4. **Seed Firestore from the existing JSON** (one-time):
    - Open the dashboard, sign in as an editor
    - Open browser DevTools console

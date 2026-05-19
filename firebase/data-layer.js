@@ -1,6 +1,6 @@
 // Data layer: try Firestore first (with realtime sync), fall back to JSON files
 // when Firestore isn't enabled or the project collection is empty.
-import { db } from "./init.js";
+import { db, storage } from "./init.js";
 import {
   collection,
   doc,
@@ -11,6 +11,11 @@ import {
   serverTimestamp,
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
+import {
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL,
+} from "https://www.gstatic.com/firebasejs/12.12.1/firebase-storage.js";
 
 const COL = {
   projects: "projects",
@@ -95,9 +100,27 @@ export async function loadPlanner() {
 export async function loadTeam() {
   try {
     const snap = await getDocs(collection(db, COL.team));
+    if (snap.empty) {
+      // Fallback to JSON team if Firestore team is empty
+      const planner = await fetchJson("./data/weekly-tasks.json").catch(() => null);
+      return planner?.metadata?.team || [];
+    }
     return snap.docs.map((d) => d.data());
   } catch (err) {
-    return [];
+    const planner = await fetchJson("./data/weekly-tasks.json").catch(() => null);
+    return planner?.metadata?.team || [];
+  }
+}
+
+export function subscribeTeam(onChange) {
+  try {
+    return onSnapshot(collection(db, COL.team), (snap) => {
+      const team = snap.docs.map((d) => d.data());
+      team.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      onChange(team);
+    });
+  } catch (err) {
+    return () => {};
   }
 }
 
@@ -156,6 +179,26 @@ export async function saveTeamMember(member) {
 
 export async function deleteTeamMember(id) {
   await deleteDoc(doc(db, COL.team, id));
+}
+
+// --- STORAGE (file uploads) --------------------------------------------------
+
+// Upload a File/Blob to Firebase Storage; returns a public download URL.
+// scope is a path prefix like "projects/P-05".
+export async function uploadFile(file, scope = "uploads", { onProgress } = {}) {
+  if (!file) throw new Error("file required");
+  const safe = String(file.name || "file")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const stamp = Date.now();
+  const path = `${scope}/${stamp}-${safe}`;
+  const ref = storageRef(storage, path);
+  // simple upload; for big files use uploadBytesResumable
+  onProgress?.(0);
+  await uploadBytes(ref, file, { contentType: file.type || "application/octet-stream" });
+  onProgress?.(1);
+  const url = await getDownloadURL(ref);
+  return { url, path, name: safe, size: file.size, type: file.type };
 }
 
 // --- MIGRATION ---------------------------------------------------------------
