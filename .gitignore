@@ -32,7 +32,5 @@ package-lock.json
 # Claude Code workspace
 .claude/
 
-# Firebase (we deploy via Netlify)
-.firebaserc
-firebase.json
+# Firebase deploy cache (firebase.json + .firebaserc ARE committed)
 .firebase/

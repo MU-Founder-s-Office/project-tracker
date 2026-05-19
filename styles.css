@@ -220,6 +220,110 @@ button {
 }
 .auth-user.is-editor .auth-role { color: var(--green); }
 
+/* ---------- Edit mode toggle ---------- */
+.edit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease), border-color 160ms var(--ease);
+}
+.edit-toggle:hover { color: var(--ink); border-color: var(--mu-yellow-edge); }
+.edit-toggle.is-on {
+  background: var(--mu-yellow);
+  color: var(--mu-ink);
+  border-color: var(--mu-yellow-edge);
+}
+.edit-toggle[hidden] { display: none !important; }
+
+/* ---------- Inline editors ---------- */
+.inline-edit-zone { position: relative; }
+.inline-edit-select,
+.inline-edit-number {
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  min-height: 28px;
+  max-width: 100%;
+  cursor: pointer;
+  transition: border-color 120ms var(--ease), background-color 120ms var(--ease);
+}
+.inline-edit-select:hover,
+.inline-edit-number:hover { border-color: var(--mu-yellow-edge); }
+.inline-edit-select:focus,
+.inline-edit-number:focus {
+  outline: none;
+  border-color: var(--mu-yellow);
+  box-shadow: 0 0 0 3px rgba(247, 213, 68, 0.25);
+}
+.inline-edit-number { width: 64px; text-align: right; }
+.inline-edit-suffix {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+/* Hero editor — sits on dark MU-ink background */
+.detail-hero .inline-edit-select.inline-edit-hero {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+/* Save-confirm flash */
+.saved { animation: editFlashOk 1.2s var(--ease) both; }
+.save-err { animation: editFlashErr 1.2s var(--ease) both; }
+@keyframes editFlashOk {
+  0%, 30% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.55); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes editFlashErr {
+  0%, 30% { box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.7); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Editable card hint */
+body.edit-mode .project-card.is-editable {
+  border-color: var(--mu-yellow-edge);
+}
+
+/* Danger zone (delete project) */
+.detail-danger { background: rgba(248, 113, 113, 0.06); }
+.danger-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+.danger-btn:hover { background: var(--red); color: #fff; }
+
+@media (max-width: 1024px) {
+  .edit-toggle { height: 32px; padding: 0 9px; font-size: 0.72rem; }
+  .edit-toggle-label { display: none; }
+}
+
 @media (max-width: 1024px) {
   .auth-btn,
   .auth-user { height: 32px; padding: 0 8px; font-size: 0.72rem; }

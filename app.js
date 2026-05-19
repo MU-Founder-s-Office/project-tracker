@@ -195,25 +195,27 @@ function wireZoom() {
   });
 }
 
+let EditUI = null;
+let DataLayer = null;
+
 async function init() {
   // Mount Firebase auth chip + (if available) load via the Firestore data layer.
   // Falls back to JSON when Firebase is offline / Firestore not yet enabled.
-  const dataLayer = await import("./firebase/data-layer.js").catch(() => null);
+  DataLayer = await import("./firebase/data-layer.js").catch(() => null);
   const authUi = await import("./firebase/auth-ui.js").catch(() => null);
+  EditUI = await import("./firebase/edit-ui.js").catch(() => null);
   authUi?.mountAuthUI(document.querySelector("#authMount"));
+  EditUI?.mountEditToggle(document.querySelector("#authMount"));
+  EditUI?.onEditModeChange(() => render());
 
   try {
     const [dataset, planner] = await Promise.all([
-      dataLayer ? dataLayer.loadDataset() : fetch("./data/projects.json", { cache: "no-store" }).then((r) => r.json()),
-      dataLayer ? dataLayer.loadPlanner() : fetch("./data/weekly-tasks.json", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+      DataLayer ? DataLayer.loadDataset() : fetch("./data/projects.json", { cache: "no-store" }).then((r) => r.json()),
+      DataLayer ? DataLayer.loadPlanner() : fetch("./data/weekly-tasks.json", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     ]);
 
     state.dataset = dataset;
-    state.projects = (state.dataset.projects || []).map((project) => ({
-      ...project,
-      phase: PHASE_MAP[project.id] || "Unassigned",
-    }));
-    state.selectedId = state.projects[0]?.id || null;
+    applyProjects(state.dataset.projects || []);
 
     if (planner?.tasks?.length) {
       Planner.dataset = planner;
@@ -225,11 +227,30 @@ async function init() {
     Planner.init();
     render();
 
-    console.log(`[init] data source: ${dataLayer ? dataLayer.dataMode() : "fetch"}`);
+    // Realtime: push Firestore updates straight into the UI
+    if (DataLayer && DataLayer.dataMode() === "firestore") {
+      DataLayer.subscribeProjects((projects) => {
+        applyProjects(projects);
+        state.dataset.projects = projects;
+        render();
+      });
+    }
+
+    console.log(`[init] data source: ${DataLayer ? DataLayer.dataMode() : "fetch"}`);
   } catch (error) {
     console.error("[init] failed", error);
     els.projectList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
     els.detailPanel.innerHTML = `<div class="detail-empty">Run the workbook importer, then refresh this page.</div>`;
+  }
+}
+
+function applyProjects(rows) {
+  state.projects = rows.map((project) => ({
+    ...project,
+    phase: PHASE_MAP[project.id] || "Unassigned",
+  }));
+  if (!state.selectedId || !state.projects.some((p) => p.id === state.selectedId)) {
+    state.selectedId = state.projects[0]?.id || null;
   }
 }
 
@@ -343,10 +364,16 @@ function renderProjectList(projects) {
   els.projectList.querySelectorAll(".project-card").forEach((card) => {
     card.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
+      if (event.target.closest(".inline-edit-zone, .inline-edit-select, .inline-edit-number")) return;
       state.selectedId = card.dataset.id;
       state.detailOpen = true;
       render();
     });
+    // Inline editors (only mounted when edit mode is on AND user is an editor)
+    if (EditUI?.isEditModeOn()) {
+      const project = state.projects.find((p) => p.id === card.dataset.id);
+      if (project) EditUI.decorateProjectCard(card, project);
+    }
   });
 }
 
@@ -576,6 +603,9 @@ function renderDetail() {
     </div>
   `;
   wireDetailControls();
+  if (EditUI?.isEditModeOn()) {
+    EditUI.decorateDetailPanel(els.detailPanel, project);
+  }
 }
 
 function wireDetailControls() {
