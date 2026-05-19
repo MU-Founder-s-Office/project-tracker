@@ -302,6 +302,248 @@ body.edit-mode .project-card.is-editable {
   border-color: var(--mu-yellow-edge);
 }
 
+/* Text + date + textarea editors */
+.inline-edit-text,
+.inline-edit-date,
+.inline-edit-textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 100%;
+  transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+}
+.inline-edit-text:focus,
+.inline-edit-date:focus,
+.inline-edit-textarea:focus {
+  outline: none;
+  border-color: var(--mu-yellow);
+  box-shadow: 0 0 0 3px rgba(247, 213, 68, 0.25);
+}
+.inline-edit-textarea {
+  min-height: 100px;
+  resize: vertical;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+/* Editable project name (contenteditable h2 in detail hero) */
+.detail-hero h2[contenteditable="true"] {
+  outline: none;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  transition: background-color 120ms var(--ease), border-color 120ms var(--ease);
+}
+.detail-hero h2[contenteditable="true"]:focus {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--mu-yellow);
+}
+
+/* Links editor */
+.link-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.link-edit-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 32px;
+  gap: 6px;
+  align-items: center;
+}
+.link-edit-row .inline-edit-text {
+  font-size: 0.82rem;
+  padding: 6px 8px;
+}
+.link-remove {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.link-remove:hover { color: var(--red); border-color: var(--red); }
+.link-add {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.link-add:hover { color: var(--ink); border-color: var(--mu-yellow-edge); }
+
+/* Section heading right side (add button + result count) */
+.section-heading-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* + New project button */
+.edit-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--mu-yellow);
+  background: var(--mu-yellow);
+  color: var(--mu-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter 120ms var(--ease);
+}
+.edit-add-btn:hover { filter: brightness(0.95); }
+.edit-add-btn[hidden] { display: none !important; }
+.edit-add-btn span { font-size: 1rem; line-height: 1; }
+
+/* Modal */
+.edit-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.55);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: editFade 200ms var(--ease-out);
+}
+@keyframes editFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.edit-modal {
+  width: 100%;
+  max-width: 520px;
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+}
+.edit-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.edit-modal header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+.edit-modal-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.3rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.edit-modal-close:hover { background: var(--surface-soft); color: var(--ink); }
+
+.edit-form {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.edit-form label > span {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.edit-form input,
+.edit-form select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 40px;
+}
+.edit-form input:focus,
+.edit-form select:focus {
+  outline: none;
+  border-color: var(--mu-yellow);
+  box-shadow: 0 0 0 3px rgba(247, 213, 68, 0.25);
+}
+.edit-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.edit-form footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.edit-form .btn-primary {
+  background: var(--mu-yellow);
+  color: var(--mu-ink);
+  border: 1px solid var(--mu-yellow);
+  font: inherit;
+  font-weight: 800;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.edit-form .btn-primary:hover { filter: brightness(0.95); }
+.edit-form .btn-secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.edit-form .btn-secondary:hover { background: var(--surface-soft); }
+
+@media (max-width: 1024px) {
+  .edit-form-row { grid-template-columns: 1fr; }
+  .link-edit-row { grid-template-columns: 1fr 1fr 32px; }
+}
+
 /* Danger zone (delete project) */
 .detail-danger { background: rgba(248, 113, 113, 0.06); }
 .danger-btn {

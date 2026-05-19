@@ -206,6 +206,7 @@ async function init() {
   EditUI = await import("./firebase/edit-ui.js").catch(() => null);
   authUi?.mountAuthUI(document.querySelector("#authMount"));
   EditUI?.mountEditToggle(document.querySelector("#authMount"));
+  EditUI?.mountAddProjectButton(document.querySelector("#addProjectMount"), () => state.projects);
   EditUI?.onEditModeChange(() => render());
 
   try {
@@ -247,7 +248,9 @@ async function init() {
 function applyProjects(rows) {
   state.projects = rows.map((project) => ({
     ...project,
-    phase: PHASE_MAP[project.id] || "Unassigned",
+    // Prefer the phase stored on the project (user-set via edit UI),
+    // fall back to the static PHASE_MAP, then "Unassigned".
+    phase: project.phase || PHASE_MAP[project.id] || "Unassigned",
   }));
   if (!state.selectedId || !state.projects.some((p) => p.id === state.selectedId)) {
     state.selectedId = state.projects[0]?.id || null;
