@@ -510,11 +510,36 @@ body.edit-mode .project-card.is-editable {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+.edit-form-hint {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+
+.edit-form-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .edit-form footer {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
   margin-top: 6px;
+}
+
+.edit-form footer button[disabled] {
+  opacity: 0.6;
+  cursor: wait;
 }
 .edit-form .btn-primary {
   background: var(--mu-yellow);

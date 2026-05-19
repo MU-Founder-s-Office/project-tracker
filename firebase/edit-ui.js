@@ -438,6 +438,12 @@ function openAddProjectModal(getProjects) {
   const projects = getProjects?.() || [];
   const nextId = nextProjectId(projects);
 
+  // Build datalist options from existing data + the known defaults
+  // so user can pick from a list OR type a brand-new workstream/phase.
+  const existingWs = [...new Set(projects.map((p) => p.workstream).filter(Boolean))];
+  const wsList = [...new Set([...WORKSTREAM_OPTIONS, ...existingWs])];
+  const allPhases = [...new Set(projects.map((p) => p.phase).filter(Boolean))];
+
   const overlay = document.createElement("div");
   overlay.className = "edit-modal-overlay";
   overlay.innerHTML = `
@@ -446,20 +452,22 @@ function openAddProjectModal(getProjects) {
         <h3 id="addProjectTitle">New project · ${nextId}</h3>
         <button type="button" class="edit-modal-close" aria-label="Close">×</button>
       </header>
-      <form class="edit-form" id="addProjectForm">
+      <form class="edit-form" id="addProjectForm" novalidate>
         <label>
           <span>Project name</span>
           <input type="text" name="project" required autofocus />
         </label>
         <label>
-          <span>Workstream</span>
-          <select name="workstream" required>
-            ${WORKSTREAM_OPTIONS.map((w) => `<option value="${w}">${w}</option>`).join("")}
-          </select>
+          <span>Workstream <em class="edit-form-hint">(pick or type new)</em></span>
+          <input type="text" name="workstream" list="addWsList" required autocomplete="off" />
+          <datalist id="addWsList">
+            ${wsList.map((w) => `<option value="${escapeAttr(w)}"></option>`).join("")}
+          </datalist>
         </label>
         <label>
-          <span>Phase</span>
-          <select name="phase" required></select>
+          <span>Phase <em class="edit-form-hint">(pick or type new)</em></span>
+          <input type="text" name="phase" list="addPhaseList" required autocomplete="off" />
+          <datalist id="addPhaseList"></datalist>
         </label>
         <div class="edit-form-row">
           <label>
@@ -481,6 +489,7 @@ function openAddProjectModal(getProjects) {
             <input type="date" name="endDate" />
           </label>
         </div>
+        <p class="edit-form-error" id="addProjectErr" hidden></p>
         <footer>
           <button type="button" class="btn-secondary" data-act="cancel">Cancel</button>
           <button type="submit" class="btn-primary">Create ${nextId}</button>
@@ -490,13 +499,20 @@ function openAddProjectModal(getProjects) {
   `;
   document.body.appendChild(overlay);
 
-  const wsSel = overlay.querySelector('select[name="workstream"]');
-  const phaseSel = overlay.querySelector('select[name="phase"]');
+  const wsInp = overlay.querySelector('input[name="workstream"]');
+  const phaseInp = overlay.querySelector('input[name="phase"]');
+  const phaseList = overlay.querySelector("#addPhaseList");
+  const errEl = overlay.querySelector("#addProjectErr");
+  const submitBtn = overlay.querySelector('button[type="submit"]');
+
   const refreshPhases = () => {
-    const phases = PHASE_OPTIONS_BY_WS[wsSel.value] || [];
-    phaseSel.innerHTML = phases.map((p) => `<option value="${p}">${p}</option>`).join("");
+    const ws = wsInp.value.trim();
+    const defaults = PHASE_OPTIONS_BY_WS[ws] || [];
+    const fromData = allPhases; // include every phase already in use, regardless of workstream
+    const merged = [...new Set([...defaults, ...fromData])];
+    phaseList.innerHTML = merged.map((p) => `<option value="${escapeAttr(p)}"></option>`).join("");
   };
-  wsSel.addEventListener("change", refreshPhases);
+  wsInp.addEventListener("input", refreshPhases);
   refreshPhases();
 
   const close = () => overlay.remove();
@@ -506,14 +522,25 @@ function openAddProjectModal(getProjects) {
     if (e.target === overlay) close();
   });
 
+  function showError(message) {
+    errEl.textContent = message;
+    errEl.hidden = false;
+  }
+  function hideError() {
+    errEl.hidden = true;
+    errEl.textContent = "";
+  }
+
   overlay.querySelector("#addProjectForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    hideError();
+
     const fd = new FormData(e.target);
     const project = {
       id: nextId,
       project: String(fd.get("project") || "").trim(),
-      workstream: String(fd.get("workstream") || ""),
-      phase: String(fd.get("phase") || ""),
+      workstream: String(fd.get("workstream") || "").trim(),
+      phase: String(fd.get("phase") || "").trim(),
       status: String(fd.get("status") || "Not Started"),
       priority: String(fd.get("priority") || "P2"),
       startDate: fd.get("startDate") || null,
@@ -527,17 +554,42 @@ function openAddProjectModal(getProjects) {
       durationDays: 0,
       extraFields: {},
     };
+
+    if (!project.project) return showError("Project name is required.");
+    if (!project.workstream) return showError("Workstream is required.");
+    if (!project.phase) return showError("Phase is required.");
+
     if (project.startDate && project.endDate) {
       project.durationDays = Math.max(
         0,
         Math.round((new Date(project.endDate) - new Date(project.startDate)) / 86400000 + 1),
       );
     }
+
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = "Creating…";
+
     try {
+      console.log("[add-project] saving", project);
       await saveProject(project);
+      console.log("[add-project] saved OK");
       close();
     } catch (err) {
-      alert(`Create failed: ${err?.message || err}`);
+      console.error("[add-project] save failed", err);
+      const code = err?.code ? ` (${err.code})` : "";
+      const msg = err?.message || String(err);
+      let hint = "";
+      if (err?.code === "permission-denied" || /permission/i.test(msg)) {
+        hint = " — check that you're signed in with a @mastersunion.org account and that Firestore rules allow editors.";
+      } else if (err?.code === "unavailable" || /offline|network/i.test(msg)) {
+        hint = " — Firestore is unreachable. Check internet / Firebase console.";
+      } else if (/firestore.*not.*enabled|database.*not.*found/i.test(msg)) {
+        hint = " — Firestore database hasn't been created in the Firebase console yet.";
+      }
+      showError(`Create failed${code}: ${msg}${hint}`);
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
     }
   });
 }
