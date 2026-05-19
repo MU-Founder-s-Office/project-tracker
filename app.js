@@ -232,7 +232,7 @@ async function init() {
     if (DataLayer && DataLayer.dataMode() === "firestore") {
       DataLayer.subscribeProjects((projects) => {
         applyProjects(projects);
-        state.dataset.projects = projects;
+        populateFilters();
         render();
       });
     }
@@ -255,6 +255,48 @@ function applyProjects(rows) {
   if (!state.selectedId || !state.projects.some((p) => p.id === state.selectedId)) {
     state.selectedId = state.projects[0]?.id || null;
   }
+  // Refresh filter dropdowns so new workstreams/phases become filterable
+  if (state.dataset) {
+    state.dataset.projects = state.projects;
+    const meta = state.dataset.metadata || {};
+    meta.workstreams = [...new Set(state.projects.map((p) => p.workstream).filter(Boolean))].sort();
+    meta.statuses = [...new Set(state.projects.map((p) => p.status).filter(Boolean))].sort();
+    meta.priorities = [...new Set(state.projects.map((p) => p.priority).filter(Boolean))].sort();
+    state.dataset.metadata = meta;
+  }
+}
+
+function clearFilters() {
+  state.filters = { search: "", workstream: "All", status: "All", priority: "All", sort: "phase" };
+  if (els.searchInput) els.searchInput.value = "";
+  if (els.workstreamFilter) els.workstreamFilter.value = "All";
+  if (els.statusFilter) els.statusFilter.value = "All";
+  if (els.priorityFilter) els.priorityFilter.value = "All";
+  if (els.sortFilter) els.sortFilter.value = "phase";
+  populateFilters();
+  render();
+}
+
+// Diagnostic helper, run `MU.diagnose()` from DevTools console
+if (typeof window !== "undefined") {
+  window.MU = Object.assign(window.MU || {}, {
+    diagnose() {
+      const ws = {};
+      state.projects.forEach((p) => {
+        ws[p.workstream || "(blank)"] = (ws[p.workstream || "(blank)"] || 0) + 1;
+      });
+      console.table({
+        total: state.projects.length,
+        selectedId: state.selectedId,
+        view: state.view,
+        filters: state.filters,
+        editorEmail: window.MU?.dataMode ? "(see auth chip)" : "(unknown)",
+      });
+      console.log("Projects by workstream:", ws);
+      console.log("All project IDs:", state.projects.map((p) => p.id).join(", "));
+    },
+    clearFilters,
+  });
 }
 
 function populateFilters() {
@@ -273,9 +315,13 @@ function populateFilters() {
 }
 
 function setOptions(select, options) {
+  const previous = select.value;
   select.innerHTML = options
     .map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`)
     .join("");
+  // Preserve the user's choice if still present, otherwise default to "All"
+  if (options.includes(previous)) select.value = previous;
+  else if (options.includes("All")) select.value = "All";
 }
 
 function wireEvents() {
@@ -352,9 +398,29 @@ function renderKpis(projects) {
 }
 
 function renderProjectList(projects) {
-  els.resultCount.textContent = `${projects.length} shown`;
+  const total = state.projects.length;
+  const filtered = projects.length;
+  const hidden = total - filtered;
+  if (hidden > 0) {
+    els.resultCount.innerHTML = `${filtered} of ${total} shown · <a href="#" id="clearFiltersLink" class="result-clear">clear filters</a>`;
+    const link = els.resultCount.querySelector("#clearFiltersLink");
+    link?.addEventListener("click", (e) => {
+      e.preventDefault();
+      clearFilters();
+    });
+  } else {
+    els.resultCount.textContent = `${total} project${total === 1 ? "" : "s"}`;
+  }
+
   if (!projects.length) {
-    els.projectList.innerHTML = `<div class="empty-state">No projects match the current filters.</div>`;
+    els.projectList.innerHTML = `<div class="empty-state">
+      No projects match the current filters.<br>
+      <a href="#" id="emptyClearFilters" class="result-clear">Clear filters</a> to see all ${total}.
+    </div>`;
+    els.projectList.querySelector("#emptyClearFilters")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      clearFilters();
+    });
     return;
   }
 

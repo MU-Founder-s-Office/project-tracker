@@ -396,6 +396,14 @@ body.edit-mode .project-card.is-editable {
   gap: 12px;
 }
 
+.result-clear {
+  color: var(--mu-yellow-edge);
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.result-clear:hover { color: var(--ink); }
+
 /* + New project button */
 .edit-add-btn {
   display: inline-flex;
