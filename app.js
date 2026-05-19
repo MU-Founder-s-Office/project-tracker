@@ -121,6 +121,22 @@ const els = {
   detailPanel: document.querySelector("#detailPanel"),
   tabs: [...document.querySelectorAll(".tab-button")],
   panels: [...document.querySelectorAll(".view-panel")],
+  // Planner
+  weekLabel: document.querySelector("#weekLabel"),
+  weekPrev: document.querySelector("#weekPrev"),
+  weekNext: document.querySelector("#weekNext"),
+  weekToday: document.querySelector("#weekToday"),
+  plannerKpis: document.querySelector("#plannerKpis"),
+  plannerBoard: document.querySelector("#plannerBoard"),
+  plannerOwnerFilter: document.querySelector("#plannerOwnerFilter"),
+  plannerProjectFilter: document.querySelector("#plannerProjectFilter"),
+  peopleList: document.querySelector("#peopleList"),
+  qualityList: document.querySelector("#qualityList"),
+  overdueList: document.querySelector("#overdueList"),
+  milestoneList: document.querySelector("#milestoneList"),
+  plannerAlertBanner: document.querySelector("#plannerAlertBanner"),
+  emailAllOverdue: document.querySelector("#emailAllOverdue"),
+  downloadAllICS: document.querySelector("#downloadAllICS"),
 };
 
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3, Done: 4, "": 5 };
@@ -181,17 +197,26 @@ function wireZoom() {
 
 async function init() {
   try {
-    const response = await fetch("./data/projects.json", { cache: "no-store" });
-    if (!response.ok) throw new Error(`Could not load data: ${response.status}`);
-    state.dataset = await response.json();
+    const [projectsRes, plannerRes] = await Promise.all([
+      fetch("./data/projects.json", { cache: "no-store" }),
+      fetch("./data/weekly-tasks.json", { cache: "no-store" }),
+    ]);
+    if (!projectsRes.ok) throw new Error(`Could not load projects: ${projectsRes.status}`);
+    state.dataset = await projectsRes.json();
     state.projects = (state.dataset.projects || []).map((project) => ({
       ...project,
       phase: PHASE_MAP[project.id] || "Unassigned",
     }));
     state.selectedId = state.projects[0]?.id || null;
 
+    if (plannerRes.ok) {
+      Planner.dataset = await plannerRes.json();
+      Planner.activeWeekStart = Planner.dataset.metadata.currentWeekStart;
+    }
+
     populateFilters();
     wireEvents();
+    Planner.init();
     render();
   } catch (error) {
     els.projectList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
@@ -558,7 +583,25 @@ function renderView() {
   els.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.view === state.view));
   els.panels.forEach((panel) => panel.classList.toggle("active", panel.id === `${state.view}View`));
   document.body.classList.toggle("view-timeline", state.view === "timeline");
+  document.body.classList.toggle("view-planner", state.view === "planner");
+  if (state.view === "planner") Planner.render();
 }
+
+const VALID_VIEWS = ["overview", "timeline", "planner"];
+function hashView() {
+  const v = (window.location.hash || "").replace("#", "");
+  return VALID_VIEWS.includes(v) ? v : null;
+}
+const startView = hashView();
+if (startView) state.view = startView;
+window.addEventListener("hashchange", () => {
+  const v = hashView();
+  if (v && v !== state.view) {
+    state.view = v;
+    if (v === "timeline") state.detailOpen = false;
+    render();
+  }
+});
 
 function filteredProjects() {
   const { search, workstream, status, priority, sort } = state.filters;
@@ -709,3 +752,610 @@ function escapeHtml(value) {
 function escapeAttribute(value) {
   return escapeHtml(value).replaceAll("`", "&#096;");
 }
+
+/* =========================================================================
+ * Weekly Planner — productivity, quality, reminders
+ * ========================================================================= */
+
+const PLANNER_STATUSES = ["To Do", "In Progress", "In Review", "Done", "Blocked"];
+
+const Planner = {
+  dataset: null,
+  activeWeekStart: null,
+  filters: { ownerId: "All", projectId: "All" },
+  initialised: false,
+
+  init() {
+    if (this.initialised) return;
+    this.initialised = true;
+    if (!this.dataset) return;
+    this.populateFilters();
+    this.wire();
+  },
+
+  populateFilters() {
+    const owners = ["All", ...this.dataset.metadata.team.map((t) => t.id)];
+    els.plannerOwnerFilter.innerHTML = owners
+      .map((id) => {
+        const label = id === "All" ? "All people" : this.team(id)?.name || id;
+        return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+      })
+      .join("");
+
+    const projectIds = ["All", ...new Set(this.dataset.tasks.map((t) => t.projectId).filter(Boolean))];
+    els.plannerProjectFilter.innerHTML = projectIds
+      .map((id) => {
+        const label = id === "All" ? "All projects" : `${id} · ${state.projects.find((p) => p.id === id)?.project || id}`;
+        return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+      })
+      .join("");
+  },
+
+  wire() {
+    els.weekPrev.addEventListener("click", () => this.shiftWeek(-7));
+    els.weekNext.addEventListener("click", () => this.shiftWeek(7));
+    els.weekToday.addEventListener("click", () => {
+      this.activeWeekStart = this.dataset.metadata.currentWeekStart;
+      this.render();
+    });
+    els.plannerOwnerFilter.addEventListener("change", (e) => {
+      this.filters.ownerId = e.target.value;
+      this.render();
+    });
+    els.plannerProjectFilter.addEventListener("change", (e) => {
+      this.filters.projectId = e.target.value;
+      this.render();
+    });
+    els.emailAllOverdue.addEventListener("click", () => this.emailAllOverdue());
+    els.downloadAllICS.addEventListener("click", () => this.downloadAllMilestonesICS());
+  },
+
+  shiftWeek(days) {
+    const next = new Date(this.activeWeekStart + "T00:00:00");
+    next.setUTCDate(next.getUTCDate() + days);
+    this.activeWeekStart = next.toISOString().slice(0, 10);
+    this.render();
+  },
+
+  team(id) {
+    return this.dataset?.metadata.team.find((t) => t.id === id);
+  },
+
+  todayISO() {
+    return this.dataset?.metadata.generatedAt?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+  },
+
+  weekTasks() {
+    return this.dataset.tasks.filter((t) => t.weekStart === this.activeWeekStart);
+  },
+
+  filteredWeekTasks() {
+    return this.weekTasks().filter((t) => {
+      if (this.filters.ownerId !== "All" && t.ownerId !== this.filters.ownerId) return false;
+      if (this.filters.projectId !== "All" && t.projectId !== this.filters.projectId) return false;
+      return true;
+    });
+  },
+
+  render() {
+    if (!this.dataset) return;
+    this.renderWeekLabel();
+    this.renderKpis();
+    this.renderBanner();
+    this.renderPeople();
+    this.renderQuality();
+    this.renderOverdue();
+    this.renderMilestones();
+    this.renderBoard();
+  },
+
+  renderWeekLabel() {
+    const start = new Date(this.activeWeekStart + "T00:00:00");
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 4);
+    const fmt = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", timeZone: "UTC" });
+    const yearFmt = new Intl.DateTimeFormat("en-GB", { year: "numeric", timeZone: "UTC" });
+    const isCurrent = this.activeWeekStart === this.dataset.metadata.currentWeekStart;
+    els.weekLabel.innerHTML = `
+      <strong>${fmt.format(start)} &ndash; ${fmt.format(end)}</strong>
+      <span class="week-year">${yearFmt.format(start)}${isCurrent ? " · This week" : ""}</span>
+    `;
+  },
+
+  renderKpis() {
+    const tasks = this.filteredWeekTasks();
+    const total = tasks.length;
+    const done = tasks.filter((t) => t.status === "Done").length;
+    const inProgress = tasks.filter((t) => t.status === "In Progress" || t.status === "In Review").length;
+    const blocked = tasks.filter((t) => t.status === "Blocked").length;
+    const today = this.todayISO();
+    const overdue = tasks.filter((t) => t.status !== "Done" && t.dueDate && t.dueDate < today).length;
+    const plannedHrs = tasks.reduce((sum, t) => sum + (t.hoursEstimate || 0), 0);
+    const loggedHrs = tasks.reduce((sum, t) => sum + (t.hoursActual || 0), 0);
+    const utilisation = plannedHrs ? Math.round((loggedHrs / plannedHrs) * 100) : 0;
+    const completionRate = total ? Math.round((done / total) * 100) : 0;
+    const milestonesDue = tasks.filter((t) => t.milestone).length;
+
+    const ratings = tasks.map((t) => t.qualityScore).filter((s) => typeof s === "number");
+    const avgQuality = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : "—";
+
+    const tiles = [
+      ["Tasks this week",   total,                   `${done} done · ${inProgress} in flight`],
+      ["Completion",        `${completionRate}%`,    `${done} of ${total} closed`],
+      ["Overdue",           overdue,                 overdue ? "Action required" : "All on track"],
+      ["Blocked",           blocked,                 blocked ? "Unblock today" : "No blockers"],
+      ["Hours logged",      `${loggedHrs}h`,         `of ${plannedHrs}h planned (${utilisation}%)`],
+      ["Avg quality",       avgQuality === "—" ? "—" : `${avgQuality}/5`, `${ratings.length} reviewed`],
+      ["Milestones",        milestonesDue,           "marked this week"],
+    ];
+
+    els.plannerKpis.innerHTML = tiles
+      .map(
+        ([label, value, helper]) => `
+          <article class="kpi planner-kpi">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(String(value))}</strong>
+            <small>${escapeHtml(helper)}</small>
+          </article>
+        `,
+      )
+      .join("");
+  },
+
+  renderBanner() {
+    const today = this.todayISO();
+    const tasks = this.weekTasks();
+    const overdueCount = tasks.filter((t) => t.status !== "Done" && t.dueDate && t.dueDate < today).length;
+    const blockedCount = tasks.filter((t) => t.status === "Blocked").length;
+    const milestonesToday = tasks.filter((t) => t.milestone && t.dueDate === today).length;
+
+    const messages = [];
+    if (overdueCount) messages.push(`<strong>${overdueCount}</strong> overdue task${overdueCount === 1 ? "" : "s"}`);
+    if (blockedCount) messages.push(`<strong>${blockedCount}</strong> blocked`);
+    if (milestonesToday) messages.push(`<strong>${milestonesToday}</strong> milestone${milestonesToday === 1 ? "" : "s"} due today`);
+
+    if (!messages.length) {
+      els.plannerAlertBanner.hidden = true;
+      els.plannerAlertBanner.innerHTML = "";
+      return;
+    }
+    els.plannerAlertBanner.hidden = false;
+    els.plannerAlertBanner.innerHTML = `
+      <span class="banner-dot" aria-hidden="true"></span>
+      <span class="banner-text">Heads-up — ${messages.join(" · ")}. Review the alert panels below.</span>
+    `;
+  },
+
+  renderPeople() {
+    const tasks = this.filteredWeekTasks();
+    const team = this.dataset.metadata.team;
+    const dailyHrs = this.dataset.metadata.dailyHours || 8;
+    const workDays = this.dataset.metadata.workWeekDays || 5;
+    const capacity = dailyHrs * workDays;
+    const today = this.todayISO();
+
+    const rows = team
+      .map((person) => {
+        const mine = tasks.filter((t) => t.ownerId === person.id);
+        if (!mine.length) return null;
+        const planned = mine.reduce((s, t) => s + (t.hoursEstimate || 0), 0);
+        const logged = mine.reduce((s, t) => s + (t.hoursActual || 0), 0);
+        const done = mine.filter((t) => t.status === "Done").length;
+        const overdue = mine.filter((t) => t.status !== "Done" && t.dueDate && t.dueDate < today).length;
+        const utilisation = capacity ? Math.round((logged / capacity) * 100) : 0;
+        const completion = mine.length ? Math.round((done / mine.length) * 100) : 0;
+        const ratings = mine.map((t) => t.qualityScore).filter((s) => typeof s === "number");
+        const quality = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+        const productivityClass = utilisation >= 95 ? "is-hot" : utilisation >= 70 ? "is-good" : utilisation >= 40 ? "is-soft" : "is-low";
+        return { person, mine, planned, logged, done, overdue, utilisation, completion, quality, productivityClass };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.utilisation - a.utilisation);
+
+    if (!rows.length) {
+      els.peopleList.innerHTML = `<div class="empty-state subtle">No people-assigned tasks this week.</div>`;
+      return;
+    }
+
+    els.peopleList.innerHTML = rows
+      .map(({ person, mine, planned, logged, done, overdue, utilisation, completion, quality, productivityClass }) => `
+        <article class="person-row">
+          <div class="person-id">
+            <span class="avatar">${escapeHtml(person.avatar || person.name.slice(0, 2))}</span>
+            <div>
+              <strong>${escapeHtml(person.name)}</strong>
+              <span class="person-role">${escapeHtml(person.role)}</span>
+            </div>
+          </div>
+          <div class="person-bars">
+            <div class="bar-row">
+              <span class="bar-label">Productivity</span>
+              <div class="bar-track"><div class="bar-fill ${productivityClass}" style="width:${Math.min(utilisation, 100)}%"></div></div>
+              <span class="bar-value">${utilisation}%</span>
+            </div>
+            <div class="bar-row">
+              <span class="bar-label">Completion</span>
+              <div class="bar-track"><div class="bar-fill is-completion" style="width:${completion}%"></div></div>
+              <span class="bar-value">${completion}%</span>
+            </div>
+          </div>
+          <div class="person-meta">
+            <span><strong>${logged}h</strong> / ${planned}h planned</span>
+            <span>${done}/${mine.length} done${overdue ? ` · <em class="meta-warn">${overdue} overdue</em>` : ""}</span>
+            <span>${quality ? `Quality <strong>${quality}/5</strong>` : `<em class="meta-muted">Quality pending</em>`}</span>
+          </div>
+          <a class="person-mail" href="${escapeAttribute(this.weeklyDigestMailto(person, mine))}" title="Send weekly digest">Email digest</a>
+        </article>
+      `)
+      .join("");
+  },
+
+  renderQuality() {
+    const all = this.dataset.tasks;
+    const team = this.dataset.metadata.team;
+    const cutoff = this.weeksAgoISO(4);
+    const rows = team
+      .map((person) => {
+        const reviewed = all.filter((t) => t.ownerId === person.id && typeof t.qualityScore === "number" && t.weekStart >= cutoff);
+        if (!reviewed.length) return null;
+        const avg = reviewed.reduce((s, t) => s + t.qualityScore, 0) / reviewed.length;
+        const milestones = reviewed.filter((t) => t.milestone).length;
+        return { person, reviewed, avg, milestones };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.avg - a.avg);
+
+    if (!rows.length) {
+      els.qualityList.innerHTML = `<div class="empty-state subtle">No reviewer ratings recorded yet.</div>`;
+      return;
+    }
+
+    els.qualityList.innerHTML = rows
+      .map(({ person, reviewed, avg, milestones }) => {
+        const tone = avg >= 4.5 ? "is-excellent" : avg >= 4 ? "is-good" : avg >= 3 ? "is-soft" : "is-low";
+        return `
+          <article class="quality-row">
+            <div class="quality-id">
+              <span class="avatar">${escapeHtml(person.avatar || person.name.slice(0, 2))}</span>
+              <div>
+                <strong>${escapeHtml(person.name)}</strong>
+                <span class="person-role">${reviewed.length} reviewed · ${milestones} milestone${milestones === 1 ? "" : "s"}</span>
+              </div>
+            </div>
+            <div class="quality-score ${tone}">
+              <span class="quality-num">${avg.toFixed(1)}</span>
+              <span class="quality-stars" aria-hidden="true">${this.renderStars(avg)}</span>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  },
+
+  renderStars(score) {
+    const full = Math.floor(score);
+    const half = score - full >= 0.4 && score - full < 0.9 ? 1 : 0;
+    const empty = 5 - full - half;
+    return "★".repeat(full) + (half ? "⯨" : "") + "☆".repeat(empty);
+  },
+
+  renderOverdue() {
+    const today = this.todayISO();
+    const list = this.dataset.tasks
+      .filter((t) => t.status !== "Done" && t.dueDate && t.dueDate < today)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+    if (!list.length) {
+      els.overdueList.innerHTML = `<div class="empty-state subtle good">Nothing overdue. ✦</div>`;
+      els.emailAllOverdue.disabled = true;
+      return;
+    }
+    els.emailAllOverdue.disabled = false;
+
+    els.overdueList.innerHTML = list
+      .map((task) => {
+        const owner = this.team(task.ownerId);
+        const project = state.projects.find((p) => p.id === task.projectId);
+        const daysLate = this.daysBetween(task.dueDate, today);
+        const mailto = this.overdueMailto(task);
+        return `
+          <article class="alert-row alert-overdue">
+            <div class="alert-main">
+              <div class="alert-title">
+                <strong>${escapeHtml(task.title)}</strong>
+                <span class="alert-late">${daysLate} day${daysLate === 1 ? "" : "s"} late</span>
+              </div>
+              <div class="alert-sub">
+                ${escapeHtml(task.id)} · ${owner ? escapeHtml(owner.name) : "Unassigned"} · ${project ? escapeHtml(project.project) : "—"} · due ${this.formatDate(task.dueDate)}
+              </div>
+            </div>
+            <div class="alert-actions">
+              ${badge(task.status)}
+              ${badge(task.priority, "priority")}
+              <a class="ghost-btn small" href="${escapeAttribute(mailto)}" title="Email ${owner ? owner.name : "owner"}">Remind</a>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  },
+
+  renderMilestones() {
+    const today = this.todayISO();
+    const horizon = this.daysAheadISO(14);
+    const list = this.dataset.tasks
+      .filter((t) => t.milestone && t.dueDate && t.dueDate >= today && t.dueDate <= horizon)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+    if (!list.length) {
+      els.milestoneList.innerHTML = `<div class="empty-state subtle">No milestones in the next 14 days.</div>`;
+      els.downloadAllICS.disabled = true;
+      return;
+    }
+    els.downloadAllICS.disabled = false;
+
+    els.milestoneList.innerHTML = list
+      .map((task) => {
+        const owner = this.team(task.ownerId);
+        const project = state.projects.find((p) => p.id === task.projectId);
+        const days = this.daysBetween(today, task.dueDate);
+        const reminderMail = this.milestoneMailto(task);
+        return `
+          <article class="alert-row alert-milestone">
+            <div class="alert-main">
+              <div class="alert-title">
+                <strong>${escapeHtml(task.title)}</strong>
+                <span class="alert-soon">${days === 0 ? "Today" : `in ${days} day${days === 1 ? "" : "s"}`}</span>
+              </div>
+              <div class="alert-sub">
+                ${escapeHtml(task.id)} · ${owner ? escapeHtml(owner.name) : "Unassigned"} · ${project ? escapeHtml(project.project) : "—"} · ${this.formatDate(task.dueDate)}
+              </div>
+            </div>
+            <div class="alert-actions">
+              <a class="ghost-btn small" href="${escapeAttribute(reminderMail)}" title="Send reminder email">Remind</a>
+              <button class="ghost-btn small" type="button" data-task-id="${escapeHtml(task.id)}" data-action="ics">.ics</button>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+
+    els.milestoneList.querySelectorAll('[data-action="ics"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const task = this.dataset.tasks.find((t) => t.id === btn.dataset.taskId);
+        if (task) this.downloadICS([task]);
+      });
+    });
+  },
+
+  renderBoard() {
+    const tasks = this.filteredWeekTasks();
+    const today = this.todayISO();
+
+    els.plannerBoard.innerHTML = PLANNER_STATUSES.map((status) => {
+      const colTasks = tasks.filter((t) => t.status === status).sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+      return `
+        <section class="board-col board-${statusClass(status)}">
+          <header class="board-col-head">
+            <span class="board-col-name">${escapeHtml(status)}</span>
+            <span class="board-col-count">${colTasks.length}</span>
+          </header>
+          <div class="board-col-body">
+            ${colTasks.map((t) => this.taskCard(t, today)).join("") || `<div class="board-empty">—</div>`}
+          </div>
+        </section>
+      `;
+    }).join("");
+  },
+
+  taskCard(task, today) {
+    const owner = this.team(task.ownerId);
+    const project = state.projects.find((p) => p.id === task.projectId);
+    const overdue = task.status !== "Done" && task.dueDate && task.dueDate < today;
+    const dueSoon = task.status !== "Done" && task.dueDate && !overdue && this.daysBetween(today, task.dueDate) <= 1;
+    const hoursDelta = (task.hoursActual || 0) - (task.hoursEstimate || 0);
+    const hoursTone = hoursDelta > 1 ? "over" : hoursDelta < -1 ? "under" : "even";
+    return `
+      <article class="task-card ${overdue ? "is-overdue" : ""} ${dueSoon ? "is-due-soon" : ""}">
+        ${task.milestone ? `<span class="task-milestone" title="Milestone">◆ Milestone</span>` : ""}
+        <div class="task-card-head">
+          <span class="task-id">${escapeHtml(task.id)}</span>
+          ${badge(task.priority, "priority")}
+        </div>
+        <h4 class="task-title">${escapeHtml(task.title)}</h4>
+        <p class="task-project">${project ? escapeHtml(project.project) : escapeHtml(task.projectId || "—")}</p>
+        <div class="task-meta">
+          <span class="task-owner">
+            <span class="avatar avatar-sm">${escapeHtml(owner?.avatar || (owner?.name || "?").slice(0, 2))}</span>
+            ${escapeHtml(owner?.name || "Unassigned")}
+          </span>
+          <span class="task-due ${overdue ? "is-overdue" : dueSoon ? "is-due-soon" : ""}">
+            Due ${this.formatDate(task.dueDate)}
+          </span>
+        </div>
+        <div class="task-foot">
+          <span class="hours hours-${hoursTone}">${task.hoursActual || 0}h / ${task.hoursEstimate || 0}h</span>
+          ${typeof task.qualityScore === "number" ? `<span class="task-quality">★ ${task.qualityScore.toFixed(1)}</span>` : `<span class="task-quality muted">Quality —</span>`}
+        </div>
+        ${task.notes ? `<p class="task-notes">${escapeHtml(task.notes)}</p>` : ""}
+      </article>
+    `;
+  },
+
+  /* ---------- Reminders & calendar ---------- */
+
+  overdueMailto(task) {
+    const owner = this.team(task.ownerId);
+    if (!owner) return "#";
+    const reviewer = this.team(task.reviewerId);
+    const project = state.projects.find((p) => p.id === task.projectId);
+    const subject = `[Action] Overdue: ${task.title} (${task.id})`;
+    const body = [
+      `Hello ${owner.name.split(" ")[0]},`,
+      ``,
+      `The following task is past its due date and needs attention today:`,
+      ``,
+      `• Task: ${task.title} (${task.id})`,
+      `• Project: ${project ? `${project.id} — ${project.project}` : task.projectId || "—"}`,
+      `• Due: ${this.formatDate(task.dueDate)}`,
+      `• Status: ${task.status} · Priority: ${task.priority}`,
+      `• Notes: ${task.notes || "—"}`,
+      ``,
+      `Please update the status or share a revised commit by end of day.`,
+      ``,
+      `— Masters' Union Project Tracker`,
+    ].join("\n");
+    const cc = reviewer ? `&cc=${encodeURIComponent(reviewer.email)}` : "";
+    return `mailto:${owner.email}?subject=${encodeURIComponent(subject)}${cc}&body=${encodeURIComponent(body)}`;
+  },
+
+  milestoneMailto(task) {
+    const owner = this.team(task.ownerId);
+    if (!owner) return "#";
+    const project = state.projects.find((p) => p.id === task.projectId);
+    const subject = `[Milestone] ${task.title} — ${this.formatDate(task.dueDate)}`;
+    const body = [
+      `Hello ${owner.name.split(" ")[0]},`,
+      ``,
+      `Reminder for an upcoming milestone:`,
+      ``,
+      `• ${task.title} (${task.id})`,
+      `• Project: ${project ? `${project.id} — ${project.project}` : task.projectId || "—"}`,
+      `• Due: ${this.formatDate(task.dueDate)}`,
+      `• Priority: ${task.priority}`,
+      ``,
+      `Please confirm readiness and flag risks at least 48 hours in advance.`,
+      ``,
+      `— Masters' Union Project Tracker`,
+    ].join("\n");
+    return `mailto:${owner.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  },
+
+  weeklyDigestMailto(person, tasks) {
+    const lines = tasks
+      .slice()
+      .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""))
+      .map((t) => `• [${t.status}] ${t.title} (${t.id}) — due ${this.formatDate(t.dueDate)}`);
+    const subject = `[Weekly Digest] ${person.name.split(" ")[0]} — week of ${this.formatDate(this.activeWeekStart)}`;
+    const body = [
+      `Hello ${person.name.split(" ")[0]},`,
+      ``,
+      `Here is your plan for the week:`,
+      ``,
+      ...lines,
+      ``,
+      `Please log hours and update statuses by end of day Friday.`,
+      ``,
+      `— Masters' Union Project Tracker`,
+    ].join("\n");
+    return `mailto:${person.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  },
+
+  emailAllOverdue() {
+    const today = this.todayISO();
+    const overdue = this.dataset.tasks.filter((t) => t.status !== "Done" && t.dueDate && t.dueDate < today);
+    if (!overdue.length) return;
+    const ownerIds = [...new Set(overdue.map((t) => t.ownerId))];
+    const tos = ownerIds.map((id) => this.team(id)?.email).filter(Boolean);
+    const subject = `[Action] ${overdue.length} overdue task${overdue.length === 1 ? "" : "s"} across the team`;
+    const lines = overdue.map((t) => {
+      const owner = this.team(t.ownerId);
+      return `• ${t.title} (${t.id}) — owner ${owner?.name || "?"} — due ${this.formatDate(t.dueDate)}`;
+    });
+    const body = [
+      `Team,`,
+      ``,
+      `The following tasks are past their due date as of ${this.formatDate(today)}:`,
+      ``,
+      ...lines,
+      ``,
+      `Please refresh statuses or escalate by end of day.`,
+      ``,
+      `— Masters' Union Project Tracker`,
+    ].join("\n");
+    window.location.href = `mailto:${tos.join(",")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  },
+
+  downloadAllMilestonesICS() {
+    const today = this.todayISO();
+    const horizon = this.daysAheadISO(14);
+    const tasks = this.dataset.tasks.filter((t) => t.milestone && t.dueDate && t.dueDate >= today && t.dueDate <= horizon);
+    if (tasks.length) this.downloadICS(tasks);
+  },
+
+  downloadICS(tasks) {
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Masters' Union//Project Tracker//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+    ];
+    tasks.forEach((task) => {
+      const dt = (task.dueDate || "").replace(/-/g, "");
+      if (!dt) return;
+      const owner = this.team(task.ownerId);
+      const project = state.projects.find((p) => p.id === task.projectId);
+      const desc = [
+        `Task: ${task.title} (${task.id})`,
+        `Project: ${project ? `${project.id} — ${project.project}` : task.projectId || "—"}`,
+        `Owner: ${owner?.name || "Unassigned"}`,
+        `Priority: ${task.priority}`,
+        task.notes ? `Notes: ${task.notes}` : null,
+      ].filter(Boolean).join("\\n");
+      const stamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${task.id}@projects.mastersunion.org`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${dt}`,
+        `DTEND;VALUE=DATE:${dt}`,
+        `SUMMARY:[Milestone] ${task.title}`,
+        `DESCRIPTION:${desc}`,
+        owner ? `ORGANIZER;CN=${owner.name}:mailto:${owner.email}` : "",
+        owner ? `ATTENDEE;CN=${owner.name};RSVP=TRUE:mailto:${owner.email}` : "",
+        "BEGIN:VALARM",
+        "TRIGGER:-P2D",
+        "ACTION:DISPLAY",
+        `DESCRIPTION:Milestone reminder — ${task.title}`,
+        "END:VALARM",
+        "END:VEVENT",
+      );
+    });
+    lines.push("END:VCALENDAR");
+    const blob = new Blob([lines.filter(Boolean).join("\r\n")], { type: "text/calendar" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = tasks.length === 1 ? `mu-milestone-${tasks[0].id}.ics` : `mu-milestones-${this.activeWeekStart}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  /* ---------- helpers ---------- */
+
+  weeksAgoISO(weeks) {
+    const d = new Date(this.todayISO() + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - weeks * 7);
+    return d.toISOString().slice(0, 10);
+  },
+
+  daysAheadISO(days) {
+    const d = new Date(this.todayISO() + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  },
+
+  daysBetween(fromISO, toISO) {
+    const a = new Date(fromISO + "T00:00:00Z").getTime();
+    const b = new Date(toISO + "T00:00:00Z").getTime();
+    return Math.round((b - a) / 86400000);
+  },
+
+  formatDate(value) {
+    if (!value) return "—";
+    return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(value + "T00:00:00Z"));
+  },
+};
