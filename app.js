@@ -196,29 +196,38 @@ function wireZoom() {
 }
 
 async function init() {
+  // Mount Firebase auth chip + (if available) load via the Firestore data layer.
+  // Falls back to JSON when Firebase is offline / Firestore not yet enabled.
+  const dataLayer = await import("./firebase/data-layer.js").catch(() => null);
+  const authUi = await import("./firebase/auth-ui.js").catch(() => null);
+  authUi?.mountAuthUI(document.querySelector("#authMount"));
+
   try {
-    const [projectsRes, plannerRes] = await Promise.all([
-      fetch("./data/projects.json", { cache: "no-store" }),
-      fetch("./data/weekly-tasks.json", { cache: "no-store" }),
+    const [dataset, planner] = await Promise.all([
+      dataLayer ? dataLayer.loadDataset() : fetch("./data/projects.json", { cache: "no-store" }).then((r) => r.json()),
+      dataLayer ? dataLayer.loadPlanner() : fetch("./data/weekly-tasks.json", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     ]);
-    if (!projectsRes.ok) throw new Error(`Could not load projects: ${projectsRes.status}`);
-    state.dataset = await projectsRes.json();
+
+    state.dataset = dataset;
     state.projects = (state.dataset.projects || []).map((project) => ({
       ...project,
       phase: PHASE_MAP[project.id] || "Unassigned",
     }));
     state.selectedId = state.projects[0]?.id || null;
 
-    if (plannerRes.ok) {
-      Planner.dataset = await plannerRes.json();
-      Planner.activeWeekStart = Planner.dataset.metadata.currentWeekStart;
+    if (planner?.tasks?.length) {
+      Planner.dataset = planner;
+      Planner.activeWeekStart = planner.metadata?.currentWeekStart || Planner.activeWeekStart;
     }
 
     populateFilters();
     wireEvents();
     Planner.init();
     render();
+
+    console.log(`[init] data source: ${dataLayer ? dataLayer.dataMode() : "fetch"}`);
   } catch (error) {
+    console.error("[init] failed", error);
     els.projectList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
     els.detailPanel.innerHTML = `<div class="detail-empty">Run the workbook importer, then refresh this page.</div>`;
   }
