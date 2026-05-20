@@ -115,6 +115,11 @@
   box-sizing: border-box;
 }
 
+/* The [hidden] attribute must win over component display values. */
+[hidden] {
+  display: none !important;
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
@@ -192,6 +197,7 @@ button {
 .boot-splash.is-hidden {
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
 }
 
 .boot-inner {
@@ -200,9 +206,6 @@ button {
 }
 
 .boot-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
   margin: 0 0 18px;
   color: var(--orange-accent);
   font-size: 0.72rem;
@@ -211,14 +214,6 @@ button {
   text-transform: uppercase;
   opacity: 0;
   animation: bootRise 640ms var(--ease-out) 80ms forwards;
-}
-
-.boot-eyebrow::before {
-  content: "";
-  width: 22px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--gradient);
 }
 
 .boot-word {
@@ -233,24 +228,51 @@ button {
   animation: bootRise 720ms var(--ease-out) 160ms forwards;
 }
 
-.boot-bar {
-  width: 180px;
-  height: 3px;
-  margin: 34px auto 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  overflow: hidden;
+.boot-sub {
+  margin: 16px 0 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  animation: bootRise 720ms var(--ease-out) 240ms forwards;
 }
 
-.boot-bar span {
-  display: block;
-  height: 100%;
-  width: 100%;
-  border-radius: inherit;
-  background: var(--gradient);
-  transform-origin: left center;
-  transform: scaleX(0);
-  animation: bootLoad 1400ms var(--ease-out) 280ms forwards;
+.boot-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 34px;
+  animation: bootRise 460ms var(--ease-out) both;
+}
+.boot-actions[hidden] { display: none !important; }
+
+.boot-signin {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #090909;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: transform 140ms var(--ease-out), box-shadow 200ms var(--ease);
+}
+.boot-signin:hover { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.16); }
+.boot-signin:active { transform: scale(0.97); }
+.boot-signin:disabled { opacity: 0.6; cursor: progress; }
+
+.boot-note {
+  margin: 2px 0 0;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 @keyframes bootRise {
@@ -262,12 +284,6 @@ button {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-@keyframes bootLoad {
-  0% { transform: scaleX(0); }
-  60% { transform: scaleX(0.7); }
-  100% { transform: scaleX(1); }
 }
 
 /* ---------- Micro-interactions ---------- */
@@ -333,6 +349,9 @@ button:focus:not(:focus-visible) {
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   box-shadow: var(--shadow);
+  /* Keep the header (and its dropdown menu) above the control band below. */
+  position: relative;
+  z-index: 30;
 }
 
 /* Brand block gets a subtle yellow accent rail */
@@ -369,26 +388,21 @@ button:focus:not(:focus-visible) {
   letter-spacing: -0.025em;
 }
 
+.brand-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .eyebrow {
   margin: 0 0 12px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
   color: var(--orange-accent);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-}
-
-/* Gradient tick (cyan -> yellow -> orange) before the eyebrow label */
-.eyebrow::before {
-  content: "";
-  width: 22px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--gradient);
-  flex-shrink: 0;
 }
 
 :root[data-theme="dark"] .eyebrow {
@@ -402,7 +416,7 @@ button:focus:not(:focus-visible) {
 }
 
 /* ---------- Auth chip ---------- */
-.auth-mount { display: inline-flex; align-items: center; }
+.auth-mount { display: inline-flex; align-items: center; gap: 8px; }
 .auth-btn,
 .auth-user {
   display: inline-flex;
@@ -468,53 +482,159 @@ button:focus:not(:focus-visible) {
 .auth-user.is-editor .auth-role { color: var(--green); }
 
 /* ---------- Edit mode toggle ---------- */
-.edit-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 160ms var(--ease), color 160ms var(--ease), border-color 160ms var(--ease);
-}
-.edit-toggle:hover { color: var(--ink); border-color: var(--mu-yellow-edge); }
-.edit-toggle.is-on {
-  background: var(--mu-yellow);
-  color: var(--mu-ink);
-  border-color: var(--mu-yellow-edge);
-}
-.edit-toggle[hidden] { display: none !important; }
-
+.edit-toggle,
 .edit-toolbar-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 10px;
+  gap: 7px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 11px;
   border: 1px solid var(--line);
   background: var(--surface);
-  color: var(--muted);
+  color: var(--ink-soft);
   font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background-color 160ms var(--ease), color 160ms var(--ease), border-color 160ms var(--ease);
+  transition:
+    background-color 160ms var(--ease),
+    color 160ms var(--ease),
+    border-color 160ms var(--ease),
+    box-shadow 160ms var(--ease),
+    transform 140ms var(--ease-out);
 }
-.edit-toolbar-btn:hover { color: var(--ink); border-color: var(--mu-yellow-edge); }
-.edit-toolbar-btn[disabled] { opacity: 0.6; cursor: progress; }
+.edit-toggle:hover,
+.edit-toolbar-btn:hover:not([disabled]) {
+  color: var(--ink);
+  border-color: var(--orange-accent);
+  box-shadow: 0 0 0 3px var(--mu-yellow-soft);
+}
+.edit-toggle:active,
+.edit-toolbar-btn:active { transform: scale(0.97); }
+
+/* Active "Editing" state — orange (primary accent) */
+.edit-toggle.is-on {
+  background: var(--orange-accent);
+  color: #fff;
+  border-color: var(--orange-accent);
+}
+.edit-toggle.is-on:hover { box-shadow: none; filter: brightness(1.05); }
+
+.edit-toggle[hidden],
 .edit-toolbar-btn[hidden] { display: none !important; }
-.edit-toolbar-btn span:first-child { font-size: 0.95rem; line-height: 1; }
+.edit-toolbar-btn[disabled] { opacity: 0.55; cursor: progress; }
+
+/* Line icons inside the toolbar buttons */
+.edit-toolbar-ico,
+.edit-toggle > svg {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.edit-toolbar-ico svg,
+.edit-toggle > svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 @media (max-width: 720px) {
-  .edit-toolbar-btn { height: 32px; padding: 0 9px; font-size: 0.72rem; }
+  .edit-toggle,
+  .edit-toolbar-btn { height: 36px; padding: 0 10px; }
   .edit-toolbar-label { display: none; }
+}
+
+/* ---------- Editor tools dropdown (header declutter) ---------- */
+.tools-menu {
+  position: relative;
+  display: inline-flex;
+}
+.tools-menu[hidden] { display: none !important; }
+
+.tools-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  transition: border-color 160ms var(--ease), color 160ms var(--ease), background-color 160ms var(--ease);
+}
+.tools-menu-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.tools-menu-btn:hover,
+.tools-menu.open .tools-menu-btn {
+  color: var(--ink);
+  border-color: var(--orange-accent);
+}
+
+.tools-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  min-width: 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px -8px rgba(9, 9, 9, 0.22);
+  animation: toolsMenuIn 160ms var(--ease-out);
+}
+:root[data-theme="dark"] .tools-menu-panel {
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+.tools-menu-panel[hidden] { display: none !important; }
+
+@keyframes toolsMenuIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Buttons rendered inside the dropdown become full-width menu rows */
+.tools-menu-panel .edit-toggle,
+.tools-menu-panel .edit-toolbar-btn {
+  width: 100%;
+  height: 38px;
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+.tools-menu-panel .edit-toggle:hover,
+.tools-menu-panel .edit-toolbar-btn:hover:not([disabled]) {
+  background: var(--surface-soft);
+  border: 0;
+  box-shadow: none;
+  transform: none;
+}
+.tools-menu-panel .edit-toggle.is-on {
+  background: var(--mu-yellow-soft);
+  color: var(--orange-accent);
+}
+.tools-menu-panel .edit-toolbar-label { display: inline !important; }
+
+/* Synced state on the dropdown's calendar item: cyan icon + trailing check */
+.tools-menu-panel .edit-toolbar-btn.is-synced .edit-toolbar-ico { color: var(--cyan); }
+.tools-menu-panel .edit-toolbar-btn.is-synced::after {
+  content: "✓";
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--cyan);
+  font-weight: 700;
 }
 
 /* ---------- Inline editors ---------- */
@@ -1856,7 +1976,6 @@ body.view-timeline #timelineView .section-heading {
   padding: 18px;
   background: var(--mu-ink);
   color: #fff;
-  border-bottom: 4px solid var(--mu-yellow);
 }
 
 .detail-close {
@@ -3158,6 +3277,91 @@ body.view-planner .main-panel {
   color: var(--mu-ink);
   border-color: var(--mu-yellow);
 }
+
+/* In-planner "Sync calendar" button — orange (primary action) */
+.week-sync {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--orange-accent);
+  background: var(--orange-accent);
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: filter 180ms var(--ease), transform 140ms var(--ease-out);
+}
+.week-sync:hover { filter: brightness(1.06); }
+.week-sync:active { transform: scale(0.96); }
+.week-sync .sync-ico { font-size: 1rem; line-height: 1; }
+
+/* Connected state — cyan "✓ Synced" status (still clickable to re-sync) */
+.week-sync.is-synced {
+  background: rgba(57, 182, 216, 0.12);
+  border-color: rgba(57, 182, 216, 0.45);
+  color: #1f7e99;
+}
+:root[data-theme="dark"] .week-sync.is-synced {
+  background: rgba(57, 182, 216, 0.18);
+  border-color: rgba(57, 182, 216, 0.5);
+  color: #6fd0ec;
+}
+.week-sync.is-synced:hover { filter: none; background: rgba(57, 182, 216, 0.2); }
+.week-sync.is-synced .sync-ico { font-weight: 700; }
+
+/* Gate: hide all planner data sections until signed in + synced */
+#plannerView.is-gated .planner-kpis,
+#plannerView.is-gated .planner-row,
+#plannerView.is-gated .planner-board-wrap,
+#plannerView.is-gated .planner-banner {
+  display: none !important;
+}
+
+.planner-gate {
+  display: grid;
+  place-items: center;
+  padding: 56px 24px;
+}
+.planner-gate-card {
+  max-width: 460px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 40px 36px;
+}
+.planner-gate-icon {
+  font-size: 2.4rem;
+  margin-bottom: 14px;
+}
+.planner-gate-card h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.planner-gate-card p {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+.planner-gate-card .btn-primary {
+  background: var(--orange-accent);
+  border: 1px solid var(--orange-accent);
+  color: #fff;
+  padding: 11px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: filter 180ms var(--ease), transform 140ms var(--ease-out);
+}
+.planner-gate-card .btn-primary:hover { filter: brightness(1.06); }
+.planner-gate-card .btn-primary:active { transform: scale(0.97); }
 
 .week-label {
   display: inline-flex;

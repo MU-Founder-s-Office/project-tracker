@@ -154,6 +154,12 @@ const els = {
   plannerAlertBanner: document.querySelector("#plannerAlertBanner"),
   emailAllOverdue: document.querySelector("#emailAllOverdue"),
   downloadAllICS: document.querySelector("#downloadAllICS"),
+  plannerView: document.querySelector("#plannerView"),
+  plannerGate: document.querySelector("#plannerGate"),
+  plannerGateTitle: document.querySelector("#plannerGateTitle"),
+  plannerGateMsg: document.querySelector("#plannerGateMsg"),
+  plannerGateBtn: document.querySelector("#plannerGateBtn"),
+  plannerSyncBtn: document.querySelector("#plannerSyncBtn"),
 };
 
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3, Done: 4, "": 5 };
@@ -218,6 +224,83 @@ function wireZoom() {
 let EditUI = null;
 let DataLayer = null;
 
+// Auth gate: the dashboard is never shown without a signed-in user. The splash
+// stays (showing the login) until sign-in, and returns if the user signs out.
+function controlSplash(authUi) {
+  const splash = document.getElementById("bootSplash");
+  if (!splash) return;
+  const actions = splash.querySelector(".boot-actions");
+  const showLogin = () => { splash.classList.remove("is-hidden"); if (actions) actions.hidden = false; };
+  const hide = () => { splash.classList.add("is-hidden"); };
+
+  if (!authUi) { showLogin(); return; } // can't authenticate → stay on the gate
+
+  splash.querySelector("#bootSignIn")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try { await authUi.signIn?.(); } catch { /* handled in auth-ui */ }
+    btn.disabled = false;
+    // A successful sign-in fires onUserChange below, which hides the gate.
+  });
+
+  let resolved = false;
+  authUi.onUserChange?.((user) => {
+    if (user) hide();
+    else if (resolved) showLogin(); // signed out (incl. after sign-out) → gate
+  });
+
+  // Keep the brand moment, then reveal the login once auth state is known.
+  const minDelay = new Promise((r) => setTimeout(r, 1000));
+  Promise.all([authUi.authResolved || Promise.resolve(null), minDelay]).then(() => {
+    resolved = true;
+    if (authUi.getCurrentUser?.()) hide();
+    else showLogin();
+  });
+}
+
+// Collapse the editor action buttons into one header dropdown (declutter).
+function mountToolsMenu(authUi) {
+  const mount = document.querySelector("#authMount");
+  if (!mount || !EditUI) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "tools-menu";
+  wrap.hidden = true;
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "tools-menu-btn";
+  btn.setAttribute("aria-haspopup", "true");
+  btn.setAttribute("aria-expanded", "false");
+  btn.title = "Editor tools";
+  btn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>`;
+
+  const panel = document.createElement("div");
+  panel.className = "tools-menu-panel";
+  panel.hidden = true;
+
+  wrap.append(btn, panel);
+  mount.appendChild(wrap);
+
+  // Mount the editor actions INTO the dropdown panel.
+  EditUI.mountEditToggle?.(panel);
+  EditUI.mountCalendarSyncButton?.(panel, () => state.projects);
+  EditUI.mountScheduleTaskButton?.(panel, () => state.projects, () => Planner.dataset?.metadata?.team || []);
+  EditUI.mountWeeklyReportButton?.(panel, () => state.projects);
+
+  const close = () => { panel.hidden = true; btn.setAttribute("aria-expanded", "false"); wrap.classList.remove("open"); };
+  const open = () => { panel.hidden = false; btn.setAttribute("aria-expanded", "true"); wrap.classList.add("open"); };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); panel.hidden ? open() : close(); });
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  // Show the menu only when an editor is signed in.
+  authUi?.onUserChange?.(() => {
+    wrap.hidden = !authUi.currentEditor?.();
+    if (wrap.hidden) close();
+  });
+}
+
 async function init() {
   // Firestore is the only data source. Auth/edit UI mount before data load
   // so the user can sign in and seed an empty database via MU.migrate().
@@ -225,14 +308,10 @@ async function init() {
   const authUi = await import("./firebase/auth-ui.js").catch(() => null);
   EditUI = await import("./firebase/edit-ui.js").catch(() => null);
   authUi?.mountAuthUI(document.querySelector("#authMount"));
-  EditUI?.mountEditToggle(document.querySelector("#authMount"));
-  EditUI?.mountCalendarSyncButton?.(document.querySelector("#authMount"), () => state.projects);
-  EditUI?.mountScheduleTaskButton?.(
-    document.querySelector("#authMount"),
-    () => state.projects,
-    () => Planner.dataset?.metadata?.team || [],
-  );
-  EditUI?.mountWeeklyReportButton?.(document.querySelector("#authMount"), () => state.projects);
+  controlSplash(authUi);
+  // Editor actions (Edit / Sync / Schedule / Weekly report) live in a single
+  // dropdown to keep the header uncluttered.
+  mountToolsMenu(authUi);
   EditUI?.mountAddProjectButton(document.querySelector("#addProjectMount"), () => state.projects);
   EditUI?.onEditModeChange(() => {
     render();
@@ -316,9 +395,14 @@ async function init() {
       if (state.view === "planner") Planner.render();
     });
 
-    // Auto-sync calendar once per browser session for signed-in editors.
-    // Window: 2026-04-20 → today+7d. Skips silently on reload if already done.
-    if (editorReady) maybeAutoSyncCalendar();
+    // Keep the planner gate in sync with auth: sign in / out re-renders so the
+    // "sign in & sync" prompt appears or clears. No auto-sync on load — the user
+    // syncs once via the planner button; the data then persists in Firestore.
+    const authMod = await import("./firebase/auth-ui.js");
+    authMod.onUserChange((user) => {
+      Planner.editor = authMod.currentEditor?.() || null;
+      if (state.view === "planner") Planner.render();
+    });
 
     // Calendar sync button asks the planner to refresh after import.
     window.addEventListener("mu:planner-refresh-requested", () => {
@@ -330,23 +414,6 @@ async function init() {
     console.error("[init] failed", error);
     els.projectList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
     els.detailPanel.innerHTML = `<div class="detail-empty">Sign in and run <code>await MU.migrate()</code> in the console to seed Firestore.</div>`;
-  }
-}
-
-// Auto-sync calendar history once per browser session. Triggers an OAuth
-// consent popup if no Calendar token is in memory — that's intentional, since
-// the user expects the planner to populate after they sign in.
-async function maybeAutoSyncCalendar() {
-  try {
-    if (sessionStorage.getItem("muCalendarAutoSyncDone") === "1") return;
-    sessionStorage.setItem("muCalendarAutoSyncDone", "1"); // claim early to avoid double-fire
-    const mod = await import("./firebase/calendar-sync.js");
-    const r = await mod.syncCalendar({ projects: state.projects, silent: true });
-    console.log("[auto-sync] calendar:", r);
-    if (state.view === "planner") Planner.render();
-  } catch (err) {
-    // Don't block app on a calendar permission denial / popup block.
-    console.warn("[auto-sync] skipped:", err?.code || err?.message || err);
   }
 }
 
@@ -1209,6 +1276,8 @@ const Planner = {
     });
     els.emailAllOverdue.addEventListener("click", () => this.emailAllOverdue());
     els.downloadAllICS.addEventListener("click", () => this.downloadAllMilestonesICS());
+    els.plannerSyncBtn?.addEventListener("click", (e) => this.syncNow(e.currentTarget));
+    els.plannerGateBtn?.addEventListener("click", (e) => this.syncNow(e.currentTarget));
   },
 
   shiftWeek(days) {
@@ -1240,15 +1309,81 @@ const Planner = {
     });
   },
 
+  // Calendar is "connected" once the user has synced at least once (flagged in
+  // localStorage) or there are calendar-sourced tasks in the dataset.
+  isCalendarConnected() {
+    if (localStorage.getItem("muCalendarConnected") === "1") return true;
+    if (localStorage.getItem("muGoogleConnected") === "1") return true;
+    return (this.dataset?.tasks || []).some((t) => t.source === "calendar");
+  },
+
   render() {
     if (!this.dataset) return;
     this.renderWeekLabel();
+
+    // Gate: show nothing but a prompt until the user is signed in AND has
+    // synced their Google Calendar at least once.
+    const signedIn = !!this.editor;
+    const connected = this.isCalendarConnected();
+    if (!signedIn || !connected) {
+      els.plannerView?.classList.add("is-gated");
+      els.plannerGate.hidden = false;
+      els.plannerSyncBtn?.toggleAttribute("hidden", !signedIn);
+      if (!signedIn) {
+        els.plannerGateTitle.textContent = "Sign in to view your planner";
+        els.plannerGateMsg.textContent =
+          "Sign in with your Masters' Union account (top-right) to see and sync your weekly plan.";
+        els.plannerGateBtn.hidden = true;
+      } else {
+        els.plannerGateTitle.textContent = "Connect your calendar";
+        els.plannerGateMsg.textContent =
+          "Sync your Google Calendar to populate this week's productivity chart and task board.";
+        els.plannerGateBtn.hidden = false;
+      }
+      return;
+    }
+
+    els.plannerView?.classList.remove("is-gated");
+    els.plannerGate.hidden = true;
+    els.plannerSyncBtn?.removeAttribute("hidden");
+
+    // Reflect the synced state on the button so the user knows the calendar is
+    // connected (✓ Synced) — still clickable to pull fresh events.
+    if (els.plannerSyncBtn && !els.plannerSyncBtn.disabled) {
+      els.plannerSyncBtn.classList.toggle("is-synced", connected);
+      els.plannerSyncBtn.innerHTML = connected
+        ? `<span class="sync-ico" aria-hidden="true">✓</span> Synced`
+        : `<span class="sync-ico" aria-hidden="true">⟳</span> Sync calendar`;
+      els.plannerSyncBtn.title = connected
+        ? "Calendar synced · click to pull the latest events"
+        : "Pull your Google Calendar events into this week";
+    }
+
     this.renderKpis();
     this.renderBanner();
     this.renderPeople();
     this.renderOverdue();
     this.renderMilestones();
     this.renderBoard();
+  },
+
+  async syncNow(triggerBtn) {
+    const btn = triggerBtn;
+    if (btn) { btn.disabled = true; btn.innerHTML = "Syncing…"; }
+    try {
+      const mod = await import("./firebase/calendar-sync.js");
+      const r = await mod.syncCalendar({ projects: state.projects });
+      localStorage.setItem("muCalendarConnected", "1");
+      console.log("[planner-sync]", r);
+    } catch (err) {
+      console.error("[planner-sync] failed", err);
+      alert(`Calendar sync failed: ${err?.message || err}`);
+    } finally {
+      // render() rebuilds the sync button into its synced/idle state, so just
+      // re-enable and let it repaint (don't restore the stale "Syncing…" html).
+      if (btn) btn.disabled = false;
+      this.render();
+    }
   },
 
   renderWeekLabel() {

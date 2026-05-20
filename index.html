@@ -4,42 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#090909" />
-    <title>Masters' Union — Project Tracker</title>
+    <title>Masters' Union — Project Tracker · Founder's Office</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap"
     />
-    <link rel="stylesheet" href="./styles.css?v=60" />
+    <link rel="stylesheet" href="./styles.css?v=68" />
   </head>
   <body>
     <div id="bootSplash" class="boot-splash" role="status" aria-label="Loading Project Tracker">
       <div class="boot-inner">
         <p class="boot-eyebrow">Masters&rsquo; Union</p>
         <h1 class="boot-word">Project<br />Tracker</h1>
-        <div class="boot-bar"><span></span></div>
+        <p class="boot-sub">Founder&rsquo;s Office</p>
+        <div class="boot-actions" hidden>
+          <button id="bootSignIn" type="button" class="boot-signin">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4c-.2 1.2-.9 2.3-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"/>
+              <path fill="currentColor" d="M12 22c2.7 0 5-.9 6.6-2.5l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6C4.7 19.7 8.1 22 12 22z"/>
+              <path fill="currentColor" d="M6.4 13.9c-.2-.6-.3-1.2-.3-1.9s.1-1.3.3-1.9V7.5H3.1C2.4 8.9 2 10.4 2 12s.4 3.1 1.1 4.5l3.3-2.6z"/>
+              <path fill="currentColor" d="M12 6c1.5 0 2.8.5 3.8 1.5l2.8-2.8C16.9 3 14.7 2 12 2 8.1 2 4.7 4.3 3.1 7.5l3.3 2.6C7.2 7.8 9.4 6 12 6z"/>
+            </svg>
+            Sign in with Google
+          </button>
+          <p class="boot-note">Sign in with your Masters&rsquo; Union account to continue.</p>
+        </div>
       </div>
     </div>
-    <script>
-      // Uber-style boot splash: show briefly on open, then fade out.
-      (function () {
-        var splash = document.getElementById("bootSplash");
-        if (!splash) return;
-        var start = Date.now();
-        var MIN = 900; // keep the brand moment visible at least this long
-        function hide() {
-          var wait = Math.max(0, MIN - (Date.now() - start));
-          setTimeout(function () {
-            splash.classList.add("is-hidden");
-            setTimeout(function () { splash.remove(); }, 600);
-          }, wait);
-        }
-        if (document.readyState === "complete") hide();
-        else window.addEventListener("load", hide);
-        setTimeout(hide, 3500); // hard fallback
-      })();
-    </script>
 
     <div id="rotateSplash" class="rotate-splash" role="dialog" aria-label="Rotate device">
       <div class="rotate-splash-card">
@@ -66,6 +59,7 @@
         <div class="brand-block">
           <p class="eyebrow">Masters&rsquo; Union</p>
           <h1>Project Tracker</h1>
+          <p class="brand-sub">Founder&rsquo;s Office</p>
         </div>
         <div class="header-controls">
           <div id="authMount" class="auth-mount"></div>
@@ -184,8 +178,20 @@
                   <span id="weekLabel" class="week-label">Week of —</span>
                   <button class="week-nav" id="weekNext" type="button" aria-label="Next week">&#8594;</button>
                   <button class="week-today" id="weekToday" type="button">Today</button>
+                  <button class="week-sync" id="plannerSyncBtn" type="button" title="Pull your Google Calendar events into this week">
+                    <span class="sync-ico" aria-hidden="true">⟳</span> Sync calendar
+                  </button>
                 </div>
               </div>
+
+              <section class="planner-gate" id="plannerGate" hidden>
+                <div class="planner-gate-card">
+                  <div class="planner-gate-icon" aria-hidden="true">🗓</div>
+                  <h3 id="plannerGateTitle">Connect your calendar</h3>
+                  <p id="plannerGateMsg">Sign in and sync your Google Calendar to populate your week.</p>
+                  <button class="btn-primary" id="plannerGateBtn" type="button">Sync Google Calendar</button>
+                </div>
+              </section>
 
               <section class="planner-banner" id="plannerAlertBanner" hidden></section>
 
@@ -288,6 +294,6 @@
       </main>
     </div>
 
-    <script src="./app.js?v=60" type="module"></script>
+    <script src="./app.js?v=68" type="module"></script>
   </body>
 </html>

@@ -10,62 +10,71 @@ import { auth, authReady, isEditor, ALLOWED_EMAIL_DOMAIN } from "./init.js";
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ hd: ALLOWED_EMAIL_DOMAIN });
 
-// Separate provider used when we need to additionally request Google Calendar
-// read access (incremental authorization). Kept separate so the basic sign-in
-// flow doesn't ask for the calendar scope until the user actually clicks
-// "Sync calendar".
-const calendarProvider = new GoogleAuthProvider();
-calendarProvider.setCustomParameters({ hd: ALLOWED_EMAIL_DOMAIN, prompt: "consent" });
-// calendar.events grants read + write so we can both pull events AND create
-// new ones (scheduling tasks straight into Google Calendar from the platform).
-calendarProvider.addScope("https://www.googleapis.com/auth/calendar.events");
+// ONE combined provider for the extra Google scopes the app needs:
+// Calendar (read + write, for sync + scheduling) AND Gmail compose (for the
+// weekly report / email digests). Requesting this once grants BOTH, so the
+// user authorises a single time instead of separately for calendar and email.
+// No forced "prompt: consent" — once granted, Google returns the token without
+// re-showing the consent screen.
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ hd: ALLOWED_EMAIL_DOMAIN });
+googleProvider.addScope("https://www.googleapis.com/auth/calendar.events");
+googleProvider.addScope("https://www.googleapis.com/auth/gmail.compose");
 
 const listeners = new Set();
 let currentUser = null;
-let calendarAccessToken = null;
+let googleAccessToken = null;
+const TOKEN_KEY = "muGoogleToken";
+const CONNECTED_KEY = "muGoogleConnected";
 
-export function getCalendarAccessToken() {
-  return calendarAccessToken;
+export function isGoogleConnected() {
+  try { return localStorage.getItem(CONNECTED_KEY) === "1"; } catch { return false; }
 }
 
-// Trigger a popup that asks for Google Calendar read access and returns a
-// short-lived OAuth access token. Token is kept in memory only.
-export async function requestCalendarAccessToken() {
-  const result = await signInWithPopup(auth, calendarProvider);
+// Reuse a still-valid token from this session so a returning user doesn't have
+// to re-trigger the OAuth popup again and again within ~the token's lifetime.
+function readCachedToken() {
+  if (googleAccessToken) return googleAccessToken;
+  try {
+    const raw = sessionStorage.getItem(TOKEN_KEY);
+    if (!raw) return null;
+    const { token, exp } = JSON.parse(raw);
+    if (token && exp && Date.now() < exp) {
+      googleAccessToken = token;
+      return token;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+// Single popup that grants Calendar + Gmail and returns a short-lived token,
+// cached in memory + sessionStorage. Both calendar-sync and gmail reuse it.
+export async function requestGoogleAccessToken() {
+  const cached = readCachedToken();
+  if (cached) return cached;
+  const result = await signInWithPopup(auth, googleProvider);
   if (!isEditor(result.user)) {
     await signOut(auth);
-    throw new Error(`Only @${ALLOWED_EMAIL_DOMAIN} accounts can sync calendar.`);
+    throw new Error(`Only @${ALLOWED_EMAIL_DOMAIN} accounts can connect Google.`);
   }
   const credential = GoogleAuthProvider.credentialFromResult(result);
   const token = credential?.accessToken;
   if (!token) throw new Error("No Google access token returned from sign-in.");
-  calendarAccessToken = token;
+  googleAccessToken = token;
+  // Google access tokens last ~1h; cache for 55m within this browser session.
+  try {
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, exp: Date.now() + 55 * 60 * 1000 }));
+    localStorage.setItem(CONNECTED_KEY, "1");
+  } catch { /* ignore */ }
   return token;
 }
 
-// Gmail compose (incremental authorization, separate from sign-in).
-const gmailProvider = new GoogleAuthProvider();
-gmailProvider.setCustomParameters({ hd: ALLOWED_EMAIL_DOMAIN, prompt: "consent" });
-gmailProvider.addScope("https://www.googleapis.com/auth/gmail.compose");
-
-let gmailAccessToken = null;
-
-export function getGmailAccessToken() {
-  return gmailAccessToken;
-}
-
-export async function requestGmailAccessToken() {
-  const result = await signInWithPopup(auth, gmailProvider);
-  if (!isEditor(result.user)) {
-    await signOut(auth);
-    throw new Error(`Only @${ALLOWED_EMAIL_DOMAIN} accounts can create Gmail drafts.`);
-  }
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  const token = credential?.accessToken;
-  if (!token) throw new Error("No Gmail access token returned from sign-in.");
-  gmailAccessToken = token;
-  return token;
-}
+// Back-compat aliases: calendar-sync and weekly-report call these names, but
+// they now resolve to the SAME combined token (one grant covers both).
+export function getCalendarAccessToken() { return readCachedToken(); }
+export function getGmailAccessToken() { return readCachedToken(); }
+export const requestCalendarAccessToken = requestGoogleAccessToken;
+export const requestGmailAccessToken = requestGoogleAccessToken;
 
 export function onUserChange(fn) {
   listeners.add(fn);
@@ -80,6 +89,20 @@ function emit(user) {
 
 export function currentEditor() {
   return isEditor(currentUser) ? currentUser : null;
+}
+
+export function getCurrentUser() {
+  return currentUser;
+}
+
+// Resolves once Firebase has restored (or confirmed the absence of) a session,
+// so the splash can decide between "signed in → dashboard" and "show login".
+let resolveAuthResolved;
+export const authResolved = new Promise((res) => { resolveAuthResolved = res; });
+
+// Public sign-in trigger (used by the splash login button and the auth chip).
+export async function signIn() {
+  return doSignIn();
 }
 
 async function doSignIn() {
@@ -157,6 +180,7 @@ export function mountAuthUI(container) {
   onAuthStateChanged(auth, (user) => {
     emit(user);
     render(user);
+    resolveAuthResolved?.(user); // first call = auth state known
   });
 }
 

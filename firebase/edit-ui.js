@@ -65,8 +65,9 @@ export function mountEditToggle(container) {
   toggleEl.className = "edit-toggle";
   toggleEl.hidden = true;
   toggleEl.innerHTML = `
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 20h9"/>
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/>
     </svg>
     <span class="edit-toggle-label">Edit</span>
   `;
@@ -829,13 +830,21 @@ export function buildUploadButton(project, onSaved) {
 
 // ----- Calendar sync + Weekly report toolbar buttons -------------------------
 
+// Clean line icons (stroke, currentColor) — match the rest of the app's icon set.
+const TOOLBAR_ICONS = {
+  sync: `<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3.5V9h-5.5"/></svg>`,
+  schedule: `<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9h17"/><path d="M8 3v3M16 3v3"/><path d="M12 12.5v5M9.5 15h5"/></svg>`,
+  report: `<svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14v3M12 9v8M17 5v12"/></svg>`,
+};
+
 function makeToolbarBtn({ id, label, icon, title }) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.id = id;
   btn.className = "edit-toolbar-btn";
   btn.title = title || label;
-  btn.innerHTML = `<span aria-hidden="true">${icon}</span><span class="edit-toolbar-label">${label}</span>`;
+  const svg = TOOLBAR_ICONS[icon] || icon || "";
+  btn.innerHTML = `<span class="edit-toolbar-ico" aria-hidden="true">${svg}</span><span class="edit-toolbar-label">${label}</span>`;
   return btn;
 }
 
@@ -844,7 +853,7 @@ export function mountScheduleTaskButton(container, getProjects, getTeam) {
   const btn = makeToolbarBtn({
     id: "scheduleTaskBtn",
     label: "Schedule task",
-    icon: "🗓",
+    icon: "schedule",
     title: "Create a task as a Google Calendar event (optionally with teammates)",
   });
   btn.hidden = !currentEditor();
@@ -988,33 +997,41 @@ export function mountCalendarSyncButton(container, getProjects) {
   const btn = makeToolbarBtn({
     id: "calSyncBtn",
     label: "Sync calendar",
-    icon: "📅",
+    icon: "sync",
     title: "Pull Google Calendar events into the planner",
   });
   btn.hidden = !currentEditor();
+  const labelEl = btn.querySelector(".edit-toolbar-label");
+  const reflectSynced = () => {
+    let connected = false;
+    try {
+      connected = localStorage.getItem("muGoogleConnected") === "1" || localStorage.getItem("muCalendarConnected") === "1";
+    } catch { /* ignore */ }
+    btn.classList.toggle("is-synced", connected);
+    labelEl.textContent = connected ? "Calendar synced" : "Sync calendar";
+  };
+  reflectSynced();
   btn.addEventListener("click", async () => {
     btn.disabled = true;
-    const orig = btn.querySelector(".edit-toolbar-label").textContent;
-    btn.querySelector(".edit-toolbar-label").textContent = "Syncing…";
+    labelEl.textContent = "Syncing…";
     try {
       const projects = getProjects?.() || [];
       const r = await syncCalendar({ projects });
-      const msg = `Calendar sync done.\nFetched: ${r.fetched}\nNew tasks created: ${r.created}\nMatched to projects: ${r.matchedToProject}\nSkipped (already imported): ${r.skipped}\n\nSwitch to the Weekly Planner tab to see them.`;
       console.log("[calendar-sync]", r);
+      try { localStorage.setItem("muCalendarConnected", "1"); } catch { /* ignore */ }
       // Pull fresh tasks + force planner re-render so newly-imported tasks
       // are immediately visible on the weekly board.
       window.dispatchEvent(new CustomEvent("mu:planner-refresh-requested"));
-      alert(msg);
     } catch (err) {
       console.error("[calendar-sync] failed", err);
       alert(`Calendar sync failed: ${err?.message || err}`);
     } finally {
       btn.disabled = false;
-      btn.querySelector(".edit-toolbar-label").textContent = orig;
+      reflectSynced();
     }
   });
   container.appendChild(btn);
-  onUserChange((user) => { btn.hidden = !user || !currentEditor(); });
+  onUserChange((user) => { btn.hidden = !user || !currentEditor(); reflectSynced(); });
 }
 
 export function mountWeeklyReportButton(container, getProjects) {
@@ -1022,7 +1039,7 @@ export function mountWeeklyReportButton(container, getProjects) {
   const btn = makeToolbarBtn({
     id: "weeklyReportBtn",
     label: "Weekly report",
-    icon: "📊",
+    icon: "report",
     title: "Generate this week's progress report as a Gmail draft",
   });
   btn.hidden = !currentEditor();
