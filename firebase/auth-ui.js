@@ -5,13 +5,67 @@ import {
   signOut,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-auth.js";
-import { auth, isEditor, ALLOWED_EMAIL_DOMAIN } from "./init.js";
+import { auth, authReady, isEditor, ALLOWED_EMAIL_DOMAIN } from "./init.js";
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ hd: ALLOWED_EMAIL_DOMAIN });
 
+// Separate provider used when we need to additionally request Google Calendar
+// read access (incremental authorization). Kept separate so the basic sign-in
+// flow doesn't ask for the calendar scope until the user actually clicks
+// "Sync calendar".
+const calendarProvider = new GoogleAuthProvider();
+calendarProvider.setCustomParameters({ hd: ALLOWED_EMAIL_DOMAIN, prompt: "consent" });
+// calendar.events grants read + write so we can both pull events AND create
+// new ones (scheduling tasks straight into Google Calendar from the platform).
+calendarProvider.addScope("https://www.googleapis.com/auth/calendar.events");
+
 const listeners = new Set();
 let currentUser = null;
+let calendarAccessToken = null;
+
+export function getCalendarAccessToken() {
+  return calendarAccessToken;
+}
+
+// Trigger a popup that asks for Google Calendar read access and returns a
+// short-lived OAuth access token. Token is kept in memory only.
+export async function requestCalendarAccessToken() {
+  const result = await signInWithPopup(auth, calendarProvider);
+  if (!isEditor(result.user)) {
+    await signOut(auth);
+    throw new Error(`Only @${ALLOWED_EMAIL_DOMAIN} accounts can sync calendar.`);
+  }
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  const token = credential?.accessToken;
+  if (!token) throw new Error("No Google access token returned from sign-in.");
+  calendarAccessToken = token;
+  return token;
+}
+
+// Gmail compose (incremental authorization, separate from sign-in).
+const gmailProvider = new GoogleAuthProvider();
+gmailProvider.setCustomParameters({ hd: ALLOWED_EMAIL_DOMAIN, prompt: "consent" });
+gmailProvider.addScope("https://www.googleapis.com/auth/gmail.compose");
+
+let gmailAccessToken = null;
+
+export function getGmailAccessToken() {
+  return gmailAccessToken;
+}
+
+export async function requestGmailAccessToken() {
+  const result = await signInWithPopup(auth, gmailProvider);
+  if (!isEditor(result.user)) {
+    await signOut(auth);
+    throw new Error(`Only @${ALLOWED_EMAIL_DOMAIN} accounts can create Gmail drafts.`);
+  }
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  const token = credential?.accessToken;
+  if (!token) throw new Error("No Gmail access token returned from sign-in.");
+  gmailAccessToken = token;
+  return token;
+}
 
 export function onUserChange(fn) {
   listeners.add(fn);
@@ -30,6 +84,7 @@ export function currentEditor() {
 
 async function doSignIn() {
   try {
+    await authReady;
     const result = await signInWithPopup(auth, provider);
     if (!isEditor(result.user)) {
       await signOut(auth);

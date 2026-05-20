@@ -86,6 +86,24 @@ const PHASE_COLORS = {
   Unassigned: "#94a3b8",
 };
 
+// Gantt project bars are coloured by delivery status (strict Masters' Union
+// brand palette: cyan / yellow / orange / grey, with completed in black/white).
+const STATUS_COLORS = {
+  "on-track": "#39b6d8", // cyan
+  "at-risk": "#e38330", // orange
+  paused: "#f7d344", // yellow
+  "not-started": "#a3a3a3", // grey
+};
+
+function statusColor(status) {
+  const key = statusClass(status);
+  if (key === "completed") {
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    return dark ? "#ffffff" : "#090909";
+  }
+  return STATUS_COLORS[key] || "#a3a3a3";
+}
+
 const THEME_KEY = "mu-tracker-theme";
 const ZOOM_KEY = "mu-tracker-zoom";
 const ZOOM_LEVELS = ["year", "quarter", "month"];
@@ -131,7 +149,6 @@ const els = {
   plannerOwnerFilter: document.querySelector("#plannerOwnerFilter"),
   plannerProjectFilter: document.querySelector("#plannerProjectFilter"),
   peopleList: document.querySelector("#peopleList"),
-  qualityList: document.querySelector("#qualityList"),
   overdueList: document.querySelector("#overdueList"),
   milestoneList: document.querySelector("#milestoneList"),
   plannerAlertBanner: document.querySelector("#plannerAlertBanner"),
@@ -173,6 +190,9 @@ function initTheme() {
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
     localStorage.setItem(THEME_KEY, next);
+    // Gantt bar colours are computed inline at render time (e.g. completed =
+    // black in light, white in dark), so re-render to keep them theme-correct.
+    render();
   });
 }
 
@@ -199,13 +219,20 @@ let EditUI = null;
 let DataLayer = null;
 
 async function init() {
-  // Mount Firebase auth chip + (if available) load via the Firestore data layer.
-  // Falls back to JSON when Firebase is offline / Firestore not yet enabled.
-  DataLayer = await import("./firebase/data-layer.js").catch(() => null);
+  // Firestore is the only data source. Auth/edit UI mount before data load
+  // so the user can sign in and seed an empty database via MU.migrate().
+  DataLayer = await import("./firebase/data-layer.js");
   const authUi = await import("./firebase/auth-ui.js").catch(() => null);
   EditUI = await import("./firebase/edit-ui.js").catch(() => null);
   authUi?.mountAuthUI(document.querySelector("#authMount"));
   EditUI?.mountEditToggle(document.querySelector("#authMount"));
+  EditUI?.mountCalendarSyncButton?.(document.querySelector("#authMount"), () => state.projects);
+  EditUI?.mountScheduleTaskButton?.(
+    document.querySelector("#authMount"),
+    () => state.projects,
+    () => Planner.dataset?.metadata?.team || [],
+  );
+  EditUI?.mountWeeklyReportButton?.(document.querySelector("#authMount"), () => state.projects);
   EditUI?.mountAddProjectButton(document.querySelector("#addProjectMount"), () => state.projects);
   EditUI?.onEditModeChange(() => {
     render();
@@ -214,17 +241,22 @@ async function init() {
 
   try {
     const [dataset, planner] = await Promise.all([
-      DataLayer ? DataLayer.loadDataset() : fetch("./data/projects.json", { cache: "no-store" }).then((r) => r.json()),
-      DataLayer ? DataLayer.loadPlanner() : fetch("./data/weekly-tasks.json", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+      DataLayer.loadDataset(),
+      DataLayer.loadPlanner(),
     ]);
 
     state.dataset = dataset;
     applyProjects(state.dataset.projects || []);
 
-    if (planner?.tasks?.length) {
-      Planner.dataset = planner;
-      Planner.activeWeekStart = planner.metadata?.currentWeekStart || Planner.activeWeekStart;
-    }
+    // Always give Planner a normalized shape so .metadata.team is safe to read
+    // before the team subscription delivers the real list.
+    Planner.dataset = {
+      tasks: planner?.tasks || [],
+      metadata: { ...(planner?.metadata || {}), team: [] },
+    };
+    // Default to the start of this Sunday–Friday work week so this week's tasks
+    // (and freshly-imported calendar events) are visible without navigation.
+    Planner.activeWeekStart = sundayOfToday();
 
     populateFilters();
     wireEvents();
@@ -232,30 +264,106 @@ async function init() {
     Team.init();
     render();
 
-    // Initial team load (works regardless of Firestore mode; falls back to JSON)
-    if (DataLayer) {
-      const initialTeam = await DataLayer.loadTeam();
-      Team.apply(initialTeam);
+    // Expose live refs for the console (debug + MU.seedThisWeek helpers).
+    if (typeof window !== "undefined" && window.MU) {
+      window.MU.Planner = Planner;
+      window.MU.state = state;
+    }
+
+    let initialTeam = await DataLayer.loadTeam();
+    Team.apply(initialTeam);
+
+    // Auto-seed: if an editor is signed in and Firestore is missing the
+    // planner/team data, push it from the bundled JSON. Avoids needing
+    // a manual MU.migrate() in the console.
+    const needsSeed = (!Planner.dataset?.tasks?.length) || (!initialTeam?.length);
+    const editorReady = !!(await import("./firebase/auth-ui.js")).currentEditor?.();
+    if (needsSeed && editorReady) {
+      try {
+        console.log("[init] empty planner/team detected — auto-seeding from JSON…");
+        const r = await DataLayer.seedPlannerAndTeam();
+        console.log("[init] auto-seed done:", r);
+        const [reloadedPlanner, reloadedTeam] = await Promise.all([
+          DataLayer.loadPlanner(),
+          DataLayer.loadTeam(),
+        ]);
+        Planner.dataset = {
+          tasks: reloadedPlanner?.tasks || [],
+          metadata: { ...(reloadedPlanner?.metadata || {}), team: reloadedTeam || [] },
+        };
+        Planner.activeWeekStart = sundayOfToday();
+        Planner.initialised = false;
+        Planner.init();
+        Team.apply(reloadedTeam);
+        initialTeam = reloadedTeam;
+      } catch (seedErr) {
+        console.error("[init] auto-seed failed", seedErr?.code, seedErr?.message, seedErr);
+      }
     }
 
     // Realtime: push Firestore updates straight into the UI
-    if (DataLayer && DataLayer.dataMode() === "firestore") {
-      DataLayer.subscribeProjects((projects) => {
-        applyProjects(projects);
-        populateFilters();
-        render();
-      });
-      DataLayer.subscribeTeam((team) => {
-        Team.apply(team);
-      });
-    }
+    DataLayer.subscribeProjects((projects) => {
+      applyProjects(projects);
+      populateFilters();
+      render();
+    });
+    DataLayer.subscribeTeam((team) => {
+      Team.apply(team);
+    });
+    DataLayer.subscribePlanner((tasks) => {
+      if (!Planner.dataset) return;
+      Planner.dataset.tasks = tasks || [];
+      if (state.view === "planner") Planner.render();
+    });
 
-    console.log(`[init] data source: ${DataLayer ? DataLayer.dataMode() : "fetch"}`);
+    // Auto-sync calendar once per browser session for signed-in editors.
+    // Window: 2026-04-20 → today+7d. Skips silently on reload if already done.
+    if (editorReady) maybeAutoSyncCalendar();
+
+    // Calendar sync button asks the planner to refresh after import.
+    window.addEventListener("mu:planner-refresh-requested", () => {
+      if (state.view === "planner") Planner.render();
+    });
+
+    console.log("[init] data source: firestore");
   } catch (error) {
     console.error("[init] failed", error);
     els.projectList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
-    els.detailPanel.innerHTML = `<div class="detail-empty">Run the workbook importer, then refresh this page.</div>`;
+    els.detailPanel.innerHTML = `<div class="detail-empty">Sign in and run <code>await MU.migrate()</code> in the console to seed Firestore.</div>`;
   }
+}
+
+// Auto-sync calendar history once per browser session. Triggers an OAuth
+// consent popup if no Calendar token is in memory — that's intentional, since
+// the user expects the planner to populate after they sign in.
+async function maybeAutoSyncCalendar() {
+  try {
+    if (sessionStorage.getItem("muCalendarAutoSyncDone") === "1") return;
+    sessionStorage.setItem("muCalendarAutoSyncDone", "1"); // claim early to avoid double-fire
+    const mod = await import("./firebase/calendar-sync.js");
+    const r = await mod.syncCalendar({ projects: state.projects, silent: true });
+    console.log("[auto-sync] calendar:", r);
+    if (state.view === "planner") Planner.render();
+  } catch (err) {
+    // Don't block app on a calendar permission denial / popup block.
+    console.warn("[auto-sync] skipped:", err?.code || err?.message || err);
+  }
+}
+
+// Work week runs Sunday → Friday (6 days). The canonical week key is the most
+// recent Sunday on or before a given date. Accepts an ISO date string or Date.
+// Existing task data is keyed by Monday; sundayOf() normalises it to the same
+// Sunday anchor (Monday's preceding Sunday), so no data migration is needed.
+function sundayOf(value) {
+  if (!value) return value;
+  const base = value instanceof Date ? value : new Date(value + "T00:00:00Z");
+  const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // getUTCDay(): 0 = Sunday
+  return d.toISOString().slice(0, 10);
+}
+
+function sundayOfToday() {
+  return sundayOf(new Date());
 }
 
 function applyProjects(rows) {
@@ -309,7 +417,79 @@ if (typeof window !== "undefined") {
       console.log("All project IDs:", state.projects.map((p) => p.id).join(", "));
     },
     clearFilters,
+    seedThisWeek,
   });
+}
+
+// Console helper: populate the CURRENT week with a realistic spread of tasks for
+// every teammate — logged hours (work done), statuses across the whole board,
+// and shared tasks (attendees) so the chart cross-maps across people. Run once
+// signed in as an editor:  await MU.seedThisWeek()
+async function seedThisWeek() {
+  if (!DataLayer) return console.warn("[seed] data layer not ready");
+  const team = Planner.dataset?.metadata?.team || [];
+  if (!team.length) return console.warn("[seed] team not loaded yet");
+
+  const ids = team.map((t) => t.id);
+  const id = (i) => ids[i % ids.length];
+  const weekStart = sundayOfToday(); // Sunday anchor (Sun–Fri work week)
+  const day = (n) => {
+    const d = new Date(weekStart + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const projIds = state.projects.map((p) => p.id);
+  const proj = (i) => projIds[i % projIds.length] || null;
+
+  // [title, ownerIdx, attendeeIdxs, status, dayOffset, estHours]
+  const defs = [
+    ["Weekly NPS programme sync", 0, [0, 1, 2, 3], "Done", 0, 1],
+    ["T4 NPS survey window planning", 0, [0], "Done", 0, 4],
+    ["Mid-term NPS analysis write-up", 2, [2], "Done", 1, 5],
+    ["Founder's office stand-up", 1, [0, 1, 2, 3], "Done", 1, 0.5],
+    ["Competitor radar refresh", 3, [3], "Done", 2, 4],
+    ["Dashboard v3 — build progress", 2, [2, 0], "In Progress", 2, 6],
+    ["Signal-quality outlier detector", 1, [1], "In Progress", 2, 5],
+    ["Stream-B finance redesign brief", 0, [0, 3], "In Progress", 3, 4],
+    ["Admissions AI eval harness", 3, [3, 1], "In Progress", 3, 5],
+    ["NPS structure ideation review", 0, [0, 2], "In Review", 3, 2],
+    ["Prospect engagement copy review", 3, [3], "In Review", 4, 2],
+    ["UG NPS rollout prep", 2, [2], "To Do", 4, 4],
+    ["Exec NPS scoping", 1, [1], "To Do", 4, 3],
+    ["Thought-leadership draft", 0, [0], "To Do", 5, 3],
+    ["Partner platform integration spec", 3, [3, 0], "Blocked", 5, 4],
+  ];
+
+  const tasks = defs.map((d, i) => {
+    const [title, ownerIdx, attIdxs, status, dayOff, est] = d;
+    const done = status === "Done";
+    const partial = status === "In Progress" || status === "In Review";
+    return {
+      id: `seed-${weekStart}-${String(i + 1).padStart(2, "0")}`,
+      title,
+      weekStart,
+      dueDate: day(dayOff),
+      projectId: proj(i),
+      ownerId: id(ownerIdx),
+      reviewerId: id(ownerIdx + 1),
+      attendees: [...new Set(attIdxs.map(id))],
+      status,
+      priority: ["P1", "P2", "P2", "P3"][i % 4],
+      milestone: false,
+      hoursEstimate: est,
+      hoursActual: done ? est : partial ? Math.round(est * 0.6 * 10) / 10 : 0,
+      completedAt: done ? day(dayOff) : null,
+      qualityScore: done ? Math.round((3.6 + Math.random() * 1.3) * 10) / 10 : null,
+      notes: "",
+      source: "seed",
+    };
+  });
+
+  console.log(`[seed] writing ${tasks.length} tasks for week ${weekStart}…`);
+  for (const t of tasks) await DataLayer.savePlannerTask(t);
+  window.dispatchEvent(new CustomEvent("mu:planner-refresh-requested"));
+  console.log(`[seed] done — switch to the Weekly Planner tab.`);
+  return { week: weekStart, count: tasks.length };
 }
 
 function populateFilters() {
@@ -524,6 +704,20 @@ function renderTimeline(projects) {
 
   const grouped = groupByWorkstreamPhase(dated);
   const totalSpan = GANTT_END.getTime() - GANTT_START.getTime();
+
+  // "Today" marker position (only drawn if within the chart window).
+  const todayMs = Date.now();
+  const todayFraction = (todayMs - GANTT_START.getTime()) / totalSpan;
+  const showToday = todayFraction >= 0 && todayFraction <= 1;
+
+  // Portfolio summary for the legend strip.
+  const counts = dated.reduce((acc, p) => {
+    acc[statusClass(p.status)] = (acc[statusClass(p.status)] || 0) + 1;
+    return acc;
+  }, {});
+  const legendItem = (cls, label) =>
+    `<span class="g-legend-item"><i class="g-status-dot ${cls}"></i>${label}<b>${counts[cls] || 0}</b></span>`;
+
   const monthHeader = GANTT_MONTHS.map(
     (month) => `
       <div class="g-month">
@@ -540,9 +734,11 @@ function renderTimeline(projects) {
         .map((phase) => {
           const span = phaseSpan(phase.projects);
           if (!span) return "";
-          const color = PHASE_COLORS[phase.name] || "#94a3b8";
           const left = ((span.start - GANTT_START.getTime()) / totalSpan) * 100;
           const width = Math.max(((span.end - span.start) / totalSpan) * 100, 0.6);
+          const phaseAvg = Math.round(
+            phase.projects.reduce((s, p) => s + clamp(p.progress, 0, 100), 0) / phase.projects.length,
+          );
 
           const projectBars = phase.projects
             .map((project) => {
@@ -552,17 +748,23 @@ function renderTimeline(projects) {
               const pw = Math.max(((end - start) / totalSpan) * 100, 0.6);
               const dim = project.status === "Not Started" ? "g-bar-dim" : "";
               const done = clamp(project.progress, 0, 100);
+              const barColor = statusColor(project.status);
+              const days = project.durationDays ? ` · ${project.durationDays}d` : "";
+              const dateRange = `${formatShortDate(start)} → ${formatShortDate(end)}${days}`;
               return `
                 <div class="g-row g-project ${project.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(project.id)}">
                   <div class="g-label g-label-sub">
                     <span class="g-status-dot ${statusClass(project.status)}"></span>
-                    <span class="g-name" title="${escapeAttribute(project.project)}">${escapeHtml(project.project)}</span>
+                    <span class="g-sub-text">
+                      <span class="g-name" title="${escapeAttribute(project.project)}">${escapeHtml(project.project)}</span>
+                      <span class="g-dates">${escapeHtml(dateRange)}</span>
+                    </span>
                     <span class="g-meta">${project.progress}%</span>
                   </div>
                   <div class="g-track">
                     ${monthGridLines()}
-                    <div class="g-bar g-bar-child ${dim}" style="left:${pl}%;width:${pw}%;background:${color};box-shadow:0 0 0 1px ${color}33"
-                      title="${escapeAttribute(`${project.id} · ${project.project} · ${project.status} · ${project.progress}%`)}">
+                    <div class="g-bar g-bar-child ${dim}" style="left:${pl}%;width:${pw}%;--bar-color:${barColor};background:${barColor}26;box-shadow:inset 0 0 0 1px ${barColor}40"
+                      title="${escapeAttribute(`${project.id} · ${project.project} · ${project.status} · ${project.progress}% · ${dateRange}`)}">
                       <div class="g-bar-fill" style="width:${done}%"></div>
                     </div>
                   </div>
@@ -578,12 +780,14 @@ function renderTimeline(projects) {
             <div class="g-row g-phase">
               <div class="g-label g-label-phase">
                 ${showWs ? `<span class="g-ws-tag">${escapeHtml(workstream.name)}</span>` : ""}
-                <strong style="color:${color}">${escapeHtml(phase.name)}</strong>
-                <span class="g-meta">${phase.projects.length} projects</span>
+                <strong>${escapeHtml(phase.name)}</strong>
+                <span class="g-meta">${phase.projects.length} projects · ${formatShortDate(span.start)}–${formatShortDate(span.end)} · ${phaseAvg}% avg</span>
               </div>
               <div class="g-track">
                 ${monthGridLines()}
-                <div class="g-bar g-bar-parent" style="left:${left}%;width:${width}%;background:${color}"></div>
+                <div class="g-bar g-bar-parent" style="left:${left}%;width:${width}%" title="${escapeAttribute(`${phase.name} · ${phaseAvg}% complete`)}">
+                  <div class="g-bar-parent-fill" style="width:${phaseAvg}%"></div>
+                </div>
               </div>
             </div>
             ${projectBars}
@@ -597,7 +801,17 @@ function renderTimeline(projects) {
     .join("");
 
   els.timeline.innerHTML = `
+    <div class="g-legend">
+      <span class="g-legend-label">Status</span>
+      ${legendItem("completed", "Completed")}
+      ${legendItem("on-track", "On track")}
+      ${legendItem("at-risk", "At risk")}
+      ${legendItem("paused", "Paused")}
+      ${legendItem("not-started", "Not started")}
+      ${showToday ? `<span class="g-legend-item g-legend-today"><i></i>Today · ${formatShortDate(todayMs)}</span>` : ""}
+    </div>
     <div class="g-grid">
+      ${showToday ? `<div class="g-today" style="left:calc(280px + (100% - 280px) * ${todayFraction})"><span class="g-today-flag">Today</span></div>` : ""}
       <div class="g-head">
         <div class="g-head-label">Phase / Project</div>
         <div class="g-track">${monthHeader}</div>
@@ -982,7 +1196,7 @@ const Planner = {
     els.weekPrev.addEventListener("click", () => this.shiftWeek(-7));
     els.weekNext.addEventListener("click", () => this.shiftWeek(7));
     els.weekToday.addEventListener("click", () => {
-      this.activeWeekStart = this.dataset.metadata.currentWeekStart;
+      this.activeWeekStart = sundayOfToday();
       this.render();
     });
     els.plannerOwnerFilter.addEventListener("change", (e) => {
@@ -1013,7 +1227,9 @@ const Planner = {
   },
 
   weekTasks() {
-    return this.dataset.tasks.filter((t) => t.weekStart === this.activeWeekStart);
+    // Tasks are keyed by Monday in storage; normalise to the Sunday work-week
+    // anchor so they match the Sunday–Friday week the planner displays.
+    return this.dataset.tasks.filter((t) => sundayOf(t.weekStart) === this.activeWeekStart);
   },
 
   filteredWeekTasks() {
@@ -1030,19 +1246,18 @@ const Planner = {
     this.renderKpis();
     this.renderBanner();
     this.renderPeople();
-    this.renderQuality();
     this.renderOverdue();
     this.renderMilestones();
     this.renderBoard();
   },
 
   renderWeekLabel() {
-    const start = new Date(this.activeWeekStart + "T00:00:00");
+    const start = new Date(this.activeWeekStart + "T00:00:00Z");
     const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 4);
+    end.setUTCDate(end.getUTCDate() + 5); // Sunday + 5 = Friday (6-day work week)
     const fmt = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", timeZone: "UTC" });
     const yearFmt = new Intl.DateTimeFormat("en-GB", { year: "numeric", timeZone: "UTC" });
-    const isCurrent = this.activeWeekStart === this.dataset.metadata.currentWeekStart;
+    const isCurrent = this.activeWeekStart === sundayOfToday();
     els.weekLabel.innerHTML = `
       <strong>${fmt.format(start)} &ndash; ${fmt.format(end)}</strong>
       <span class="week-year">${yearFmt.format(start)}${isCurrent ? " · This week" : ""}</span>
@@ -1117,13 +1332,19 @@ const Planner = {
     const tasks = this.filteredWeekTasks();
     const team = this.dataset.metadata.team;
     const dailyHrs = this.dataset.metadata.dailyHours || 8;
-    const workDays = this.dataset.metadata.workWeekDays || 5;
+    const workDays = this.dataset.metadata.workWeekDays || 6;
     const capacity = dailyHrs * workDays;
     const today = this.todayISO();
 
     const rows = team
       .map((person) => {
-        const mine = tasks.filter((t) => t.ownerId === person.id);
+        // Cross-map across teammates: a person is credited for any task they
+        // own OR attend (shared calendar events list every attendee).
+        const mine = tasks.filter(
+          (t) =>
+            t.ownerId === person.id ||
+            (Array.isArray(t.attendees) && t.attendees.includes(person.id)),
+        );
         if (!mine.length) return null;
         const planned = mine.reduce((s, t) => s + (t.hoursEstimate || 0), 0);
         const logged = mine.reduce((s, t) => s + (t.hoursActual || 0), 0);
@@ -1167,7 +1388,7 @@ const Planner = {
             </div>
           </div>
           <div class="person-meta">
-            <span><strong>${logged}h</strong> / ${planned}h planned</span>
+            <span><strong>${Math.round(logged * 10) / 10}h</strong> / ${Math.round(planned * 10) / 10}h planned</span>
             <span>${done}/${mine.length} done${overdue ? ` · <em class="meta-warn">${overdue} overdue</em>` : ""}</span>
             <span>${quality ? `Quality <strong>${quality}/5</strong>` : `<em class="meta-muted">Quality pending</em>`}</span>
           </div>
@@ -1319,7 +1540,9 @@ const Planner = {
     const tasks = this.filteredWeekTasks();
     const today = this.todayISO();
 
-    els.plannerBoard.innerHTML = PLANNER_STATUSES.map((status) => {
+    const crossTeam = this.crossTeamPanelHtml(tasks);
+
+    const board = PLANNER_STATUSES.map((status) => {
       const colTasks = tasks.filter((t) => t.status === status).sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
       return `
         <section class="board-col board-${statusClass(status)}">
@@ -1333,28 +1556,115 @@ const Planner = {
         </section>
       `;
     }).join("");
+
+    els.plannerBoard.innerHTML = crossTeam + board;
+  },
+
+  // Lists meetings/tasks this week where 2+ team members are attendees, plus
+  // a frequency tally of who's collaborating with whom. Surfaces only when
+  // there's at least one shared item, so it stays out of the way otherwise.
+  crossTeamPanelHtml(tasks) {
+    const shared = tasks.filter((t) => Array.isArray(t.attendees) && t.attendees.length >= 2);
+    if (!shared.length) return "";
+
+    // Pair frequency map for collaboration "depth"
+    const pairs = new Map();
+    shared.forEach((t) => {
+      const ids = [...new Set(t.attendees)].sort();
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const key = `${ids[i]}|${ids[j]}`;
+          pairs.set(key, (pairs.get(key) || 0) + 1);
+        }
+      }
+    });
+    const pairItems = [...pairs.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([key, count]) => {
+        const [a, b] = key.split("|");
+        const ta = this.team(a); const tb = this.team(b);
+        if (!ta || !tb) return null;
+        return `<span class="cross-pair"><span class="avatar avatar-sm">${escapeHtml(ta.avatar || ta.name.slice(0,2))}</span><span class="avatar avatar-sm">${escapeHtml(tb.avatar || tb.name.slice(0,2))}</span><span class="cross-pair-label">${escapeHtml(ta.name.split(" ")[0])} × ${escapeHtml(tb.name.split(" ")[0])}</span><span class="cross-pair-count">${count}</span></span>`;
+      })
+      .filter(Boolean);
+    // When we have all 4 slots filled, drop a divider after the 2nd pair to
+    // visually group "top 2" from the rest.
+    const topPairs =
+      pairItems.length >= 4
+        ? [...pairItems.slice(0, 2), `<span class="cross-pair-divider" aria-hidden="true"></span>`, ...pairItems.slice(2)].join("")
+        : pairItems.join("");
+
+    const items = shared
+      .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""))
+      .slice(0, 6)
+      .map((t) => {
+        const names = (t.attendees || []).map((id) => this.team(id)?.name?.split(" ")[0]).filter(Boolean);
+        const project = state.projects.find((p) => p.id === t.projectId);
+        return `<li class="cross-item">
+          <div class="cross-item-title">${escapeHtml(t.title)}</div>
+          <div class="cross-item-meta">${escapeHtml(names.join(", "))}${project ? ` · ${escapeHtml(project.project)}` : ""} · ${escapeHtml(this.formatDate(t.dueDate))}</div>
+        </li>`;
+      })
+      .join("");
+
+    return `
+      <section class="cross-team-panel">
+        <header class="cross-team-head">
+          <span class="cross-team-eyebrow">Cross-Team Collaborations</span>
+          <span class="cross-team-count">${shared.length} shared this week</span>
+        </header>
+        ${topPairs ? `<div class="cross-pairs">${topPairs}</div>` : ""}
+        <ul class="cross-list">${items}</ul>
+      </section>
+    `;
   },
 
   taskCard(task, today) {
-    const owner = this.team(task.ownerId);
     const project = state.projects.find((p) => p.id === task.projectId);
+    const isCalendar = task.source === "calendar";
     const overdue = task.status !== "Done" && task.dueDate && task.dueDate < today;
     const dueSoon = task.status !== "Done" && task.dueDate && !overdue && this.daysBetween(today, task.dueDate) <= 1;
     const hoursDelta = (task.hoursActual || 0) - (task.hoursEstimate || 0);
     const hoursTone = hoursDelta > 1 ? "over" : hoursDelta < -1 ? "under" : "even";
+
+    // Attendees: prefer the calendar-populated array; fall back to ownerId for
+    // non-calendar tasks. Filter to known team members so we render real avatars.
+    const attendeeIds = (Array.isArray(task.attendees) && task.attendees.length
+      ? task.attendees
+      : [task.ownerId]).filter(Boolean);
+    const attendees = attendeeIds.map((id) => this.team(id)).filter(Boolean);
+    const isShared = attendees.length > 1;
+    const avatarsHtml = attendees.slice(0, 3).map((a) =>
+      `<span class="avatar avatar-sm" title="${escapeHtml(a.name)}">${escapeHtml(a.avatar || a.name.slice(0,2))}</span>`
+    ).join("");
+    const moreCount = attendees.length - 3;
+    const ownerLabel = isShared
+      ? `${attendees.length} attendees`
+      : escapeHtml(attendees[0]?.name || "Unassigned");
+
     return `
-      <article class="task-card ${overdue ? "is-overdue" : ""} ${dueSoon ? "is-due-soon" : ""}">
+      <article class="task-card ${overdue ? "is-overdue" : ""} ${dueSoon ? "is-due-soon" : ""} ${isShared ? "is-shared" : ""}">
         ${task.milestone ? `<span class="task-milestone" title="Milestone">◆ Milestone</span>` : ""}
+        ${isShared ? `<span class="task-shared-tag" title="Cross-team collaboration">⇄ Shared</span>` : ""}
         <div class="task-card-head">
-          <span class="task-id">${escapeHtml(task.id)}</span>
+          ${isCalendar
+            ? `<span class="task-id task-id-cal" title="Synced from Google Calendar">
+                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9h17"/><path d="M8 3.5v3M16 3.5v3"/></svg>
+                 Calendar
+               </span>`
+            : `<span class="task-id">${escapeHtml(task.id)}</span>`}
           ${badge(task.priority, "priority")}
         </div>
         <h4 class="task-title">${escapeHtml(task.title)}</h4>
         <p class="task-project">${project ? escapeHtml(project.project) : escapeHtml(task.projectId || "—")}</p>
         <div class="task-meta">
           <span class="task-owner">
-            <span class="avatar avatar-sm">${escapeHtml(owner?.avatar || (owner?.name || "?").slice(0, 2))}</span>
-            ${escapeHtml(owner?.name || "Unassigned")}
+            <span class="avatar-stack">
+              ${avatarsHtml}
+              ${moreCount > 0 ? `<span class="avatar avatar-sm avatar-more">+${moreCount}</span>` : ""}
+            </span>
+            ${ownerLabel}
           </span>
           <span class="task-due ${overdue ? "is-overdue" : dueSoon ? "is-due-soon" : ""}">
             Due ${this.formatDate(task.dueDate)}
@@ -1362,7 +1672,13 @@ const Planner = {
         </div>
         <div class="task-foot">
           <span class="hours hours-${hoursTone}">${task.hoursActual || 0}h / ${task.hoursEstimate || 0}h</span>
-          ${typeof task.qualityScore === "number" ? `<span class="task-quality">★ ${task.qualityScore.toFixed(1)}</span>` : `<span class="task-quality muted">Quality —</span>`}
+          ${
+            isCalendar
+              ? `<span class="task-quality muted">Meeting</span>`
+              : typeof task.qualityScore === "number"
+                ? `<span class="task-quality">★ ${task.qualityScore.toFixed(1)}</span>`
+                : `<span class="task-quality muted">Quality —</span>`
+          }
         </div>
         ${task.notes ? `<p class="task-notes">${escapeHtml(task.notes)}</p>` : ""}
       </article>

@@ -9,11 +9,38 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap"
     />
-    <link rel="stylesheet" href="./styles.css?v=47" />
+    <link rel="stylesheet" href="./styles.css?v=60" />
   </head>
   <body>
+    <div id="bootSplash" class="boot-splash" role="status" aria-label="Loading Project Tracker">
+      <div class="boot-inner">
+        <p class="boot-eyebrow">Masters&rsquo; Union</p>
+        <h1 class="boot-word">Project<br />Tracker</h1>
+        <div class="boot-bar"><span></span></div>
+      </div>
+    </div>
+    <script>
+      // Uber-style boot splash: show briefly on open, then fade out.
+      (function () {
+        var splash = document.getElementById("bootSplash");
+        if (!splash) return;
+        var start = Date.now();
+        var MIN = 900; // keep the brand moment visible at least this long
+        function hide() {
+          var wait = Math.max(0, MIN - (Date.now() - start));
+          setTimeout(function () {
+            splash.classList.add("is-hidden");
+            setTimeout(function () { splash.remove(); }, 600);
+          }, wait);
+        }
+        if (document.readyState === "complete") hide();
+        else window.addEventListener("load", hide);
+        setTimeout(hide, 3500); // hard fallback
+      })();
+    </script>
+
     <div id="rotateSplash" class="rotate-splash" role="dialog" aria-label="Rotate device">
       <div class="rotate-splash-card">
         <div class="rotate-icon" aria-hidden="true">
@@ -164,7 +191,7 @@
 
               <section class="planner-kpis" id="plannerKpis" aria-label="Weekly summary"></section>
 
-              <section class="planner-row">
+              <section class="planner-row single">
                 <article class="panel scoreboard" aria-label="Team productivity">
                   <header class="panel-head">
                     <div>
@@ -174,17 +201,6 @@
                     <span class="panel-helper">Hours logged vs. planned · this week</span>
                   </header>
                   <div class="people-list" id="peopleList"></div>
-                </article>
-
-                <article class="panel quality" aria-label="Quality scoreboard">
-                  <header class="panel-head">
-                    <div>
-                      <p class="eyebrow">Craft</p>
-                      <h3>Quality Scoreboard</h3>
-                    </div>
-                    <span class="panel-helper">Reviewer ratings · trailing 4 weeks</span>
-                  </header>
-                  <div class="quality-list" id="qualityList"></div>
                 </article>
               </section>
 
@@ -272,6 +288,6 @@
       </main>
     </div>
 
-    <script src="./app.js?v=47" type="module"></script>
+    <script src="./app.js?v=60" type="module"></script>
   </body>
 </html>

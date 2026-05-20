@@ -1,9 +1,12 @@
-// Data layer: try Firestore first (with realtime sync), fall back to JSON files
-// when Firestore isn't enabled or the project collection is empty.
-import { db, storage } from "./init.js";
+// Data layer: Firestore is the single source of truth.
+// JSON files in /data are read only by pushAllToFirestore() (one-time migration).
+import { db } from "./init.js";
+import { supabase, SUPABASE_BUCKET } from "./supabase.js";
 import {
+  arrayUnion,
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   setDoc,
@@ -11,11 +14,6 @@ import {
   serverTimestamp,
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
-import {
-  ref as storageRef,
-  uploadBytes,
-  getDownloadURL,
-} from "https://www.gstatic.com/firebasejs/12.12.1/firebase-storage.js";
 
 const COL = {
   projects: "projects",
@@ -24,10 +22,8 @@ const COL = {
   team: "team",
 };
 
-let mode = "unknown"; // "firestore" | "fallback" | "unknown"
-
 export function dataMode() {
-  return mode;
+  return "firestore";
 }
 
 async function fetchJson(path) {
@@ -40,76 +36,43 @@ async function fetchJson(path) {
 
 async function loadProjectsFromFirestore() {
   const snap = await getDocs(collection(db, COL.projects));
-  if (snap.empty) return null;
   const projects = snap.docs.map((d) => d.data());
   projects.sort((a, b) => (a.id || "").localeCompare(b.id || ""));
   return projects;
 }
 
 async function loadMetaFromFirestore() {
-  const ref = doc(db, COL.meta, "dataset");
   const snap = await getDocs(collection(db, COL.meta));
   const found = snap.docs.find((d) => d.id === "dataset");
   return found ? found.data() : null;
 }
 
 export async function loadDataset() {
-  // Try Firestore first
-  try {
-    const [projects, meta] = await Promise.all([
-      loadProjectsFromFirestore(),
-      loadMetaFromFirestore(),
-    ]);
-    if (projects && projects.length) {
-      mode = "firestore";
-      return {
-        metadata: meta || defaultMeta(projects),
-        projects,
-        risks: [],
-      };
-    }
-  } catch (err) {
-    console.warn("[data] Firestore unavailable, falling back to JSON.", err?.code || err?.message);
-  }
-
-  // Fallback to bundled JSON
-  mode = "fallback";
-  return fetchJson("./data/projects.json");
+  const [projects, meta] = await Promise.all([
+    loadProjectsFromFirestore(),
+    loadMetaFromFirestore(),
+  ]);
+  return {
+    metadata: meta || defaultMeta(projects),
+    projects,
+    risks: [],
+  };
 }
 
 export async function loadPlanner() {
-  // Try Firestore
-  try {
-    const snap = await getDocs(collection(db, COL.planner));
-    if (!snap.empty) {
-      const tasks = snap.docs.map((d) => d.data());
-      return { tasks, source: "firestore" };
-    }
-  } catch (err) {
-    console.warn("[data] Firestore planner unavailable, falling back to JSON.");
-  }
-  try {
-    const json = await fetchJson("./data/weekly-tasks.json");
-    return { ...json, source: "fallback" };
-  } catch (err) {
-    console.warn("[data] No weekly-tasks.json either.", err?.message);
-    return { tasks: [], people: [], source: "empty" };
-  }
+  const [taskSnap, metaSnap] = await Promise.all([
+    getDocs(collection(db, COL.planner)),
+    getDocs(collection(db, COL.meta)),
+  ]);
+  const tasks = taskSnap.docs.map((d) => d.data());
+  const metaDoc = metaSnap.docs.find((d) => d.id === "planner");
+  const metadata = metaDoc ? metaDoc.data() : {};
+  return { tasks, metadata, source: "firestore" };
 }
 
 export async function loadTeam() {
-  try {
-    const snap = await getDocs(collection(db, COL.team));
-    if (snap.empty) {
-      // Fallback to JSON team if Firestore team is empty
-      const planner = await fetchJson("./data/weekly-tasks.json").catch(() => null);
-      return planner?.metadata?.team || [];
-    }
-    return snap.docs.map((d) => d.data());
-  } catch (err) {
-    const planner = await fetchJson("./data/weekly-tasks.json").catch(() => null);
-    return planner?.metadata?.team || [];
-  }
+  const snap = await getDocs(collection(db, COL.team));
+  return snap.docs.map((d) => d.data());
 }
 
 export function subscribeTeam(onChange) {
@@ -167,6 +130,67 @@ export async function savePlannerTask(task) {
   await setDoc(ref, { ...task, _updatedAt: serverTimestamp() }, { merge: true });
 }
 
+// Used by the calendar sync so re-running doesn't overwrite user edits made
+// to a previously-imported task. Returns { created: true } on first write,
+// { created: false } if a task with that id already exists.
+export async function createPlannerTaskIfMissing(task) {
+  if (!task?.id) throw new Error("task.id required");
+  const ref = doc(db, COL.planner, task.id);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return { created: false };
+  await setDoc(ref, { ...task, _updatedAt: serverTimestamp() });
+  return { created: true };
+}
+
+// Calendar-sync upsert: creates a planner task on first encounter, or merges
+// attendees (and refreshes calendar-truth fields like title/time) on subsequent
+// syncs by other team members. Returns { created: boolean, attendeeAdded: boolean }.
+export async function upsertCalendarTask(task, syncedByTeamId) {
+  if (!task?.id) throw new Error("task.id required");
+  const allAttendees = [
+    ...(syncedByTeamId ? [syncedByTeamId] : []),
+    ...(Array.isArray(task.attendees) ? task.attendees : []),
+  ].filter(Boolean);
+  const uniqueAttendees = [...new Set(allAttendees)];
+  const ref = doc(db, COL.planner, task.id);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      ...task,
+      attendees: uniqueAttendees,
+      ownerId: task.ownerId || syncedByTeamId || null,
+      reviewerId: task.reviewerId || syncedByTeamId || null,
+      _updatedAt: serverTimestamp(),
+    });
+    return { created: true, attendeeAdded: true };
+  }
+
+  // Existing doc: merge attendees (arrayUnion preserves order-free uniqueness),
+  // and refresh only fields that the calendar is authoritative for. Leave
+  // ownerId / status / projectId / notes alone so user edits survive.
+  await setDoc(
+    ref,
+    {
+      title: task.title,
+      weekStart: task.weekStart,
+      dueDate: task.dueDate,
+      calendarHtmlLink: task.calendarHtmlLink || null,
+      hoursEstimate: task.hoursEstimate ?? snap.data().hoursEstimate ?? 0,
+      // Calendar is authoritative for actual worked time (past meetings logged).
+      hoursActual: task.hoursActual ?? snap.data().hoursActual ?? 0,
+      completedAt: task.completedAt ?? snap.data().completedAt ?? null,
+      attendees: arrayUnion(...uniqueAttendees),
+      source: "calendar",
+      _updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+  const existingAttendees = snap.data().attendees || [];
+  const attendeeAdded = uniqueAttendees.some((a) => !existingAttendees.includes(a));
+  return { created: false, attendeeAdded };
+}
+
 export async function deletePlannerTask(id) {
   await deleteDoc(doc(db, COL.planner, id));
 }
@@ -183,7 +207,8 @@ export async function deleteTeamMember(id) {
 
 // --- STORAGE (file uploads) --------------------------------------------------
 
-// Upload a File/Blob to Firebase Storage; returns a public download URL.
+// Upload a File/Blob to Supabase Storage; returns a public URL.
+// The URL is what we persist in Firestore (in the project's `links` array).
 // scope is a path prefix like "projects/P-05".
 export async function uploadFile(file, scope = "uploads", { onProgress } = {}) {
   if (!file) throw new Error("file required");
@@ -192,12 +217,24 @@ export async function uploadFile(file, scope = "uploads", { onProgress } = {}) {
     .replace(/^-+|-+$/g, "");
   const stamp = Date.now();
   const path = `${scope}/${stamp}-${safe}`;
-  const ref = storageRef(storage, path);
-  // simple upload; for big files use uploadBytesResumable
+
   onProgress?.(0);
-  await uploadBytes(ref, file, { contentType: file.type || "application/octet-stream" });
+  const { error: uploadErr } = await supabase.storage
+    .from(SUPABASE_BUCKET)
+    .upload(path, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (uploadErr) {
+    const err = new Error(uploadErr.message || "Supabase upload failed");
+    err.code = uploadErr.statusCode || uploadErr.name || "supabase-upload-error";
+    throw err;
+  }
   onProgress?.(1);
-  const url = await getDownloadURL(ref);
+
+  const { data } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
+  const url = data?.publicUrl;
+  if (!url) throw new Error("Supabase did not return a public URL");
   return { url, path, name: safe, size: file.size, type: file.type };
 }
 
@@ -205,7 +242,7 @@ export async function uploadFile(file, scope = "uploads", { onProgress } = {}) {
 
 export async function pushAllToFirestore({ dataset, planner } = {}) {
   if (!dataset) dataset = await fetchJson("./data/projects.json");
-  if (!planner) planner = await fetchJson("./data/weekly-tasks.json").catch(() => ({ tasks: [], people: [] }));
+  if (!planner) planner = await fetchJson("./data/weekly-tasks.json").catch(() => ({ tasks: [] }));
 
   const batch1 = writeBatch(db);
   (dataset.projects || []).forEach((p) => {
@@ -218,6 +255,7 @@ export async function pushAllToFirestore({ dataset, planner } = {}) {
     await setDoc(doc(db, COL.meta, "dataset"), { ...dataset.metadata, _updatedAt: serverTimestamp() });
   }
 
+  // Planner tasks
   if (planner?.tasks?.length) {
     const batch2 = writeBatch(db);
     planner.tasks.forEach((t) => {
@@ -227,9 +265,19 @@ export async function pushAllToFirestore({ dataset, planner } = {}) {
     await batch2.commit();
   }
 
-  if (planner?.people?.length) {
+  // Planner metadata (currentWeekStart, workWeekDays, dailyHours, statuses, priorities)
+  if (planner?.metadata) {
+    const { team: _ignoredTeam, ...plannerMeta } = planner.metadata;
+    await setDoc(doc(db, COL.meta, "planner"), { ...plannerMeta, _updatedAt: serverTimestamp() });
+  }
+
+  // Team members live in planner.metadata.team in the JSON; fall back to top-level `people`.
+  const people = planner?.people?.length
+    ? planner.people
+    : planner?.metadata?.team || [];
+  if (people.length) {
     const batch3 = writeBatch(db);
-    planner.people.forEach((person) => {
+    people.forEach((person) => {
       const id = person.id || person.email || person.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       if (!id) return;
       batch3.set(doc(db, COL.team, id), { ...person, id, _updatedAt: serverTimestamp() });
@@ -240,7 +288,7 @@ export async function pushAllToFirestore({ dataset, planner } = {}) {
   return {
     projects: (dataset.projects || []).length,
     plannerTasks: (planner?.tasks || []).length,
-    teamMembers: (planner?.people || []).length,
+    teamMembers: people.length,
   };
 }
 
@@ -257,14 +305,80 @@ function defaultMeta(projects) {
   };
 }
 
-// Expose migration to the browser console for one-time use:
-//   window.MU.migrate()   -> pushes JSON files to Firestore
+// Push only planner tasks + team (from /data JSON) to Firestore. Useful when
+// projects already seeded but team/planner were missed by an earlier migration.
+export async function seedPlannerAndTeam() {
+  const planner = await fetchJson("./data/weekly-tasks.json");
+  const out = { plannerTasks: 0, teamMembers: 0, plannerMeta: false };
+
+  if (planner?.tasks?.length) {
+    const batch = writeBatch(db);
+    planner.tasks.forEach((t) => {
+      if (!t.id) return;
+      batch.set(doc(db, COL.planner, t.id), { ...t, _updatedAt: serverTimestamp() });
+    });
+    await batch.commit();
+    out.plannerTasks = planner.tasks.length;
+  }
+
+  if (planner?.metadata) {
+    const { team: _t, ...plannerMeta } = planner.metadata;
+    await setDoc(doc(db, COL.meta, "planner"), { ...plannerMeta, _updatedAt: serverTimestamp() });
+    out.plannerMeta = true;
+  }
+
+  const people = planner?.metadata?.team || planner?.people || [];
+  if (people.length) {
+    const batch = writeBatch(db);
+    people.forEach((p) => {
+      const id = p.id || p.email || p.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      if (!id) return;
+      batch.set(doc(db, COL.team, id), { ...p, id, _updatedAt: serverTimestamp() });
+    });
+    await batch.commit();
+    out.teamMembers = people.length;
+  }
+  return out;
+}
+
+// Expose migration helpers to the browser console.
 if (typeof window !== "undefined") {
   window.MU = Object.assign(window.MU || {}, {
     async migrate() {
-      const result = await pushAllToFirestore();
-      console.log("[migrate] done:", result);
-      return result;
+      try {
+        const result = await pushAllToFirestore();
+        console.log("[migrate] done:", result);
+        return result;
+      } catch (err) {
+        console.error("[migrate] FAILED", err?.code, err?.message, err);
+        throw err;
+      }
+    },
+    async seed() {
+      try {
+        const result = await seedPlannerAndTeam();
+        console.log("[seed] planner+team done:", result);
+        return result;
+      } catch (err) {
+        console.error("[seed] FAILED", err?.code, err?.message, err);
+        throw err;
+      }
+    },
+    async counts() {
+      const [projects, planner, team, meta] = await Promise.all([
+        getDocs(collection(db, COL.projects)),
+        getDocs(collection(db, COL.planner)),
+        getDocs(collection(db, COL.team)),
+        getDocs(collection(db, COL.meta)),
+      ]);
+      const row = {
+        projects: projects.size,
+        plannerTasks: planner.size,
+        teamMembers: team.size,
+        metaDocs: meta.size,
+      };
+      console.table(row);
+      return row;
     },
     dataMode,
   });

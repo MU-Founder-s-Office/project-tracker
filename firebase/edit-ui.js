@@ -5,6 +5,8 @@
 // - Other devices see updates via realtime subscriptions in app.js
 import { saveProject, deleteProject, saveTeamMember, deleteTeamMember, uploadFile } from "./data-layer.js";
 import { onUserChange, currentEditor } from "./auth-ui.js";
+import { syncCalendar, createCalendarEvent } from "./calendar-sync.js";
+import { createWeeklyReportDraft } from "./weekly-report.js";
 
 const STATUS_OPTIONS = ["Completed", "On Track", "At Risk", "Paused", "Not Started"];
 const PRIORITY_OPTIONS = ["P0", "P1", "P2", "P3", "Done"];
@@ -791,9 +793,19 @@ export function buildUploadButton(project, onSaved) {
     status.textContent = `Uploading ${file.name}…`;
     try {
       const scope = `projects/${project.id || "misc"}`;
-      const { url, name } = await uploadFile(file, scope);
+      const uploaded = await uploadFile(file, scope);
       const links = Array.isArray(project.links) ? [...project.links] : [];
-      links.push({ label: name.replace(/\.[a-z0-9]+$/i, ""), url });
+      links.push({
+        label: (file.name || uploaded.name).replace(/\.[a-z0-9]+$/i, ""),
+        url: uploaded.url,
+        fileName: file.name || uploaded.name,
+        storagePath: uploaded.path,
+        size: uploaded.size,
+        contentType: uploaded.type,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: currentEditor()?.email || null,
+        source: "supabase",
+      });
       await saveProject({ ...project, links });
       status.textContent = "Uploaded ✓";
       setTimeout(() => (status.textContent = ""), 1500);
@@ -813,6 +825,230 @@ export function buildUploadButton(project, onSaved) {
   wrap.appendChild(input);
   wrap.appendChild(status);
   return wrap;
+}
+
+// ----- Calendar sync + Weekly report toolbar buttons -------------------------
+
+function makeToolbarBtn({ id, label, icon, title }) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = id;
+  btn.className = "edit-toolbar-btn";
+  btn.title = title || label;
+  btn.innerHTML = `<span aria-hidden="true">${icon}</span><span class="edit-toolbar-label">${label}</span>`;
+  return btn;
+}
+
+export function mountScheduleTaskButton(container, getProjects, getTeam) {
+  if (!container || container.querySelector("#scheduleTaskBtn")) return;
+  const btn = makeToolbarBtn({
+    id: "scheduleTaskBtn",
+    label: "Schedule task",
+    icon: "🗓",
+    title: "Create a task as a Google Calendar event (optionally with teammates)",
+  });
+  btn.hidden = !currentEditor();
+  btn.addEventListener("click", () => openScheduleTaskModal(getProjects, getTeam));
+  container.appendChild(btn);
+  onUserChange(() => { btn.hidden = !currentEditor(); });
+}
+
+function openScheduleTaskModal(getProjects, getTeam) {
+  if (!currentEditor()) return;
+  const projects = getProjects?.() || [];
+  const team = getTeam?.() || [];
+
+  // Default: today, next round hour, 1h long.
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+  const startHour = String(Math.min(now.getHours() + 1, 18)).padStart(2, "0");
+
+  const overlay = document.createElement("div");
+  overlay.className = "edit-modal-overlay";
+  overlay.innerHTML = `
+    <div class="edit-modal" role="dialog" aria-labelledby="schedTitle">
+      <header>
+        <h3 id="schedTitle">Schedule a task</h3>
+        <button type="button" class="edit-modal-close" aria-label="Close">×</button>
+      </header>
+      <form class="edit-form" id="schedForm" novalidate>
+        <label>
+          <span>Task / meeting title</span>
+          <input type="text" name="title" required autofocus placeholder="e.g. NPS dashboard review" />
+        </label>
+        <div class="edit-form-row">
+          <label>
+            <span>Date</span>
+            <input type="date" name="date" value="${dateStr}" required />
+          </label>
+          <label>
+            <span>Start</span>
+            <input type="time" name="start" value="${startHour}:00" required />
+          </label>
+          <label>
+            <span>Hours</span>
+            <input type="number" name="hours" value="1" min="0.25" step="0.25" required />
+          </label>
+        </div>
+        <label>
+          <span>Project <em class="edit-form-hint">(optional)</em></span>
+          <select name="projectId">
+            <option value="">— None —</option>
+            ${projects
+              .map((p) => `<option value="${escapeAttr(p.id)}">${escapeAttr(p.id)} · ${escapeAttr(p.project)}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <fieldset class="sched-attendees">
+          <legend>Attendees <em class="edit-form-hint">(invites teammates; shared across calendars)</em></legend>
+          <div class="sched-attendee-grid">
+            ${team
+              .filter((m) => m.email)
+              .map(
+                (m) => `
+              <label class="sched-attendee">
+                <input type="checkbox" name="attendee" value="${escapeAttr(m.email)}" />
+                <span>${escapeAttr(m.name)}</span>
+              </label>`,
+              )
+              .join("")}
+          </div>
+        </fieldset>
+        <p class="edit-form-error" id="schedErr" hidden></p>
+        <footer>
+          <button type="button" class="btn-secondary" data-act="cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Add to Google Calendar</button>
+        </footer>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const errEl = overlay.querySelector("#schedErr");
+  const submitBtn = overlay.querySelector('button[type="submit"]');
+  const close = () => overlay.remove();
+  overlay.querySelector(".edit-modal-close").addEventListener("click", close);
+  overlay.querySelector('[data-act="cancel"]').addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector("#schedForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.hidden = true;
+    const fd = new FormData(e.target);
+    const title = String(fd.get("title") || "").trim();
+    const date = fd.get("date");
+    const start = fd.get("start");
+    const hours = parseFloat(fd.get("hours")) || 1;
+    const attendeeEmails = fd.getAll("attendee");
+
+    if (!title) { errEl.textContent = "Title is required."; errEl.hidden = false; return; }
+    if (!date || !start) { errEl.textContent = "Date and start time are required."; errEl.hidden = false; return; }
+
+    // Build local-time ISO strings with the browser's UTC offset so Google
+    // stores the wall-clock time the user picked.
+    const startLocal = new Date(`${date}T${start}:00`);
+    const endLocal = new Date(startLocal.getTime() + hours * 3600000);
+    const toIso = (d) => {
+      const off = -d.getTimezoneOffset();
+      const sign = off >= 0 ? "+" : "-";
+      const pad = (n) => String(Math.floor(Math.abs(n))).padStart(2, "0");
+      return d.getFullYear() +
+        "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+        "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":00" +
+        sign + pad(off / 60) + ":" + pad(off % 60);
+    };
+
+    submitBtn.disabled = true;
+    const orig = submitBtn.textContent;
+    submitBtn.textContent = "Scheduling…";
+    try {
+      await createCalendarEvent({
+        summary: title,
+        startISO: toIso(startLocal),
+        endISO: toIso(endLocal),
+        attendeeEmails,
+        description: `Scheduled from Project Tracker.`,
+      });
+      // Pull it straight back in so it lands on the planner board + chart.
+      await syncCalendar({ projects });
+      window.dispatchEvent(new CustomEvent("mu:planner-refresh-requested"));
+      close();
+    } catch (err) {
+      console.error("[schedule-task] failed", err);
+      errEl.textContent = `Could not schedule: ${err?.message || err}`;
+      errEl.hidden = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = orig;
+    }
+  });
+}
+
+export function mountCalendarSyncButton(container, getProjects) {
+  if (!container || container.querySelector("#calSyncBtn")) return;
+  const btn = makeToolbarBtn({
+    id: "calSyncBtn",
+    label: "Sync calendar",
+    icon: "📅",
+    title: "Pull Google Calendar events into the planner",
+  });
+  btn.hidden = !currentEditor();
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const orig = btn.querySelector(".edit-toolbar-label").textContent;
+    btn.querySelector(".edit-toolbar-label").textContent = "Syncing…";
+    try {
+      const projects = getProjects?.() || [];
+      const r = await syncCalendar({ projects });
+      const msg = `Calendar sync done.\nFetched: ${r.fetched}\nNew tasks created: ${r.created}\nMatched to projects: ${r.matchedToProject}\nSkipped (already imported): ${r.skipped}\n\nSwitch to the Weekly Planner tab to see them.`;
+      console.log("[calendar-sync]", r);
+      // Pull fresh tasks + force planner re-render so newly-imported tasks
+      // are immediately visible on the weekly board.
+      window.dispatchEvent(new CustomEvent("mu:planner-refresh-requested"));
+      alert(msg);
+    } catch (err) {
+      console.error("[calendar-sync] failed", err);
+      alert(`Calendar sync failed: ${err?.message || err}`);
+    } finally {
+      btn.disabled = false;
+      btn.querySelector(".edit-toolbar-label").textContent = orig;
+    }
+  });
+  container.appendChild(btn);
+  onUserChange((user) => { btn.hidden = !user || !currentEditor(); });
+}
+
+export function mountWeeklyReportButton(container, getProjects) {
+  if (!container || container.querySelector("#weeklyReportBtn")) return;
+  const btn = makeToolbarBtn({
+    id: "weeklyReportBtn",
+    label: "Weekly report",
+    icon: "📊",
+    title: "Generate this week's progress report as a Gmail draft",
+  });
+  btn.hidden = !currentEditor();
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const labelEl = btn.querySelector(".edit-toolbar-label");
+    const orig = labelEl.textContent;
+    labelEl.textContent = "Creating draft…";
+    try {
+      const projects = getProjects?.() || [];
+      const r = await createWeeklyReportDraft({ projects, user: currentEditor() });
+      console.log("[weekly-report] draft created", r);
+      // Gmail opened in a new tab; show a quick confirmation in case the
+      // popup got blocked.
+      labelEl.textContent = "Draft created ✓";
+      setTimeout(() => { labelEl.textContent = orig; }, 1800);
+    } catch (err) {
+      console.error("[weekly-report] failed", err);
+      labelEl.textContent = orig;
+      alert(`Could not create draft: ${err?.message || err}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  container.appendChild(btn);
+  onUserChange((user) => { btn.hidden = !user || !currentEditor(); });
 }
 
 function escapeHTML(s) {

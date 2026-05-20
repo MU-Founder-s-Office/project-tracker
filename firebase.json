@@ -7,6 +7,7 @@
       "**/.*",
       "**/node_modules/**",
       "scripts/**",
+      "out/**",
       "README.md",
       "*.md",
       "package.json",

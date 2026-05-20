@@ -18,6 +18,7 @@ desktop.ini
 *.zip
 dist/
 build/
+out/
 
 # Local env / secrets
 .env
