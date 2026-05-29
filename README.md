@@ -12,6 +12,12 @@ Built as a static site (HTML / CSS / vanilla JS) backed by Firebase Firestore fo
 
 ## Run locally
 
+Using Node/npm:
+```bash
+npm run dev
+```
+
+Or using Python:
 ```bash
 python -m http.server 4178
 ```
