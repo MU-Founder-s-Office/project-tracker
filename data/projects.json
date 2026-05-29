@@ -2,7 +2,7 @@
   "metadata": {
     "sourceFile": "MU_Project_Tracker_v5.xlsx",
     "generatedAt": "2026-05-01T12:45:38.732163+00:00",
-    "projectCount": 34,
+    "projectCount": 35,
     "workstreams": [
       "AI Initiatives",
       "External Consulting",
@@ -1026,6 +1026,24 @@
       ],
       "rag": "",
       "durationDays": 10,
+      "extraFields": {}
+    },
+    {
+      "id": "P-35",
+      "project": "Founder Management Tool",
+      "workstream": "Strategy",
+      "phase": "Internal Ops",
+      "status": "On Track",
+      "priority": "P0",
+      "startDate": "2026-05-29",
+      "endDate": null,
+      "progress": 1,
+      "topRisk": "",
+      "notes": "",
+      "references": [],
+      "links": [],
+      "rag": "",
+      "durationDays": 0,
       "extraFields": {}
     }
   ],
