@@ -2,9 +2,10 @@
   "metadata": {
     "sourceFile": "MU_Project_Tracker_v5.xlsx",
     "generatedAt": "2026-05-01T12:45:38.732163+00:00",
-    "projectCount": 29,
+    "projectCount": 34,
     "workstreams": [
       "AI Initiatives",
+      "External Consulting",
       "NPS Program",
       "Platforms",
       "Strategy"
@@ -916,6 +917,116 @@
         "mitigation": "• Meeting teams and defining use cases of AI tools.\n• In process.",
         "owner": "AI Initiatives"
       }
+    },
+    {
+      "id": "P-30",
+      "project": "T4 NPS",
+      "workstream": "NPS Program",
+      "phase": "Phase 1 - Active Survey Execution",
+      "status": "Completed",
+      "priority": "Done",
+      "startDate": "2026-04-20",
+      "endDate": "2026-05-30",
+      "progress": 100,
+      "topRisk": "",
+      "notes": "",
+      "references": [],
+      "links": [
+        {
+          "label": "NPS Dashboard (live)",
+          "url": "https://nps-dashboard-new.web.app/"
+        }
+      ],
+      "rag": "",
+      "durationDays": 41,
+      "extraFields": {}
+    },
+    {
+      "id": "P-31",
+      "project": "Presentations for HM Meeting",
+      "workstream": "External Consulting",
+      "phase": "HM Engagement",
+      "status": "On Track",
+      "priority": "P0",
+      "startDate": "2026-05-15",
+      "endDate": null,
+      "progress": 0,
+      "topRisk": "",
+      "notes": "",
+      "references": [],
+      "links": [],
+      "rag": "",
+      "durationDays": 0,
+      "extraFields": {}
+    },
+    {
+      "id": "P-32",
+      "project": "Sahaj for HM",
+      "workstream": "External Consulting",
+      "phase": "HM Engagement",
+      "status": "Completed",
+      "priority": "Done",
+      "startDate": "2026-05-17",
+      "endDate": "2026-05-21",
+      "progress": 100,
+      "topRisk": "",
+      "notes": "",
+      "references": [],
+      "links": [
+        {
+          "label": "Sahaj (live)",
+          "url": "https://sahaj-citizen-connect.web.app/"
+        }
+      ],
+      "rag": "",
+      "durationDays": 5,
+      "extraFields": {}
+    },
+    {
+      "id": "P-33",
+      "project": "Maidaan for HM",
+      "workstream": "External Consulting",
+      "phase": "HM Engagement",
+      "status": "Completed",
+      "priority": "Done",
+      "startDate": "2026-05-17",
+      "endDate": "2026-05-21",
+      "progress": 100,
+      "topRisk": "",
+      "notes": "",
+      "references": [],
+      "links": [
+        {
+          "label": "Maidaan (live)",
+          "url": "https://sports-hub-831d2.web.app/"
+        }
+      ],
+      "rag": "",
+      "durationDays": 5,
+      "extraFields": {}
+    },
+    {
+      "id": "P-34",
+      "project": "Janhit (Prev. Nagarik)",
+      "workstream": "External Consulting",
+      "phase": "HM Engagement",
+      "status": "On Track",
+      "priority": "P0",
+      "startDate": "2026-05-21",
+      "endDate": "2026-05-30",
+      "progress": 65,
+      "topRisk": "",
+      "notes": "",
+      "references": [],
+      "links": [
+        {
+          "label": "Janhit (live)",
+          "url": "https://nagarik-2a4cc.web.app/"
+        }
+      ],
+      "rag": "",
+      "durationDays": 10,
+      "extraFields": {}
     }
   ],
   "risks": [
