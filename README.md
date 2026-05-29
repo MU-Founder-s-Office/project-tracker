@@ -14,6 +14,7 @@ Built as a static site (HTML / CSS / vanilla JS) backed by Firebase Firestore fo
 
 Using Node/npm:
 ```bash
+npm install   # first run only — installs http-server
 npm run dev
 ```
 
@@ -22,7 +23,7 @@ Or using Python:
 python -m http.server 4178
 ```
 
-Open `http://127.0.0.1:4178/`.
+Open `http://localhost:4178/` — use `localhost`, not `127.0.0.1`, or Google sign-in fails with `auth/unauthorized-domain`.
 
 The dashboard tries Firestore first, then falls back to the JSON snapshots in `data/` if Firestore isn't reachable or hasn't been seeded yet. So it works without Firebase enabled — you just won't be able to edit.
 

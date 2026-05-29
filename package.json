@@ -1,0 +1,13 @@
+{
+  "name": "mu-project-tracker",
+  "version": "1.0.0",
+  "description": "Live dashboard for the Masters' Union project portfolio.",
+  "main": "app.js",
+  "scripts": {
+    "dev": "http-server -p 4178",
+    "start": "http-server -p 4178"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

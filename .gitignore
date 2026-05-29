@@ -25,10 +25,8 @@ out/
 .env.local
 *.pem
 
-# Node (dashboard is pure static; nothing here is a runtime dep)
+# Node — dev tooling only (http-server powers `npm run dev`); deps are not committed
 node_modules/
-package.json
-package-lock.json
 
 # Claude Code workspace
 .claude/
